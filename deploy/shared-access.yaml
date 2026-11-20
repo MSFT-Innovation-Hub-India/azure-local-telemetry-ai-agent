@@ -1,0 +1,20 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-telemetry-sop-access
+  namespace: assistant-demo
+  labels: {app.kubernetes.io/part-of: realtime-telemetry}
+spec:
+  podSelector:
+    matchExpressions:
+      - {key: app, operator: In, values: [qdrant, embeddings]}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: telemetry-demo}
+          podSelector:
+            matchLabels: {app: telemetry-web}
+      ports:
+        - {protocol: TCP, port: 6333}
+        - {protocol: TCP, port: 8001}

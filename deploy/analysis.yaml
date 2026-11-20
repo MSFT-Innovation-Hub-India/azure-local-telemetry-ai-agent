@@ -1,0 +1,114 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: telemetry-web
+  namespace: telemetry-demo
+  labels: {app.kubernetes.io/part-of: realtime-telemetry}
+spec:
+  selector: {app: telemetry-web}
+  ports: [{name: http, port: 80, targetPort: 8000}]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: telemetry-analysis-database
+  namespace: telemetry-demo
+  labels: {app.kubernetes.io/part-of: realtime-telemetry}
+spec:
+  podSelector: {matchLabels: {app: timescaledb}}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector: {matchLabels: {app: telemetry-web}}
+      ports: [{protocol: TCP, port: 5432}]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: telemetry-analysis-access
+  namespace: telemetry-demo
+  labels: {app.kubernetes.io/part-of: realtime-telemetry}
+spec:
+  podSelector: {matchLabels: {app: telemetry-web}}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: assistant-demo}
+          podSelector:
+            matchExpressions:
+              - {key: app, operator: In, values: [qdrant, embeddings]}
+      ports:
+        - {protocol: TCP, port: 6333}
+        - {protocol: TCP, port: 8001}
+    - to:
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: foundry-local-operator}
+          podSelector:
+            matchExpressions:
+              - {key: app.kubernetes.io/name, operator: In, values: [qwen2-5-0-5b-cpu, qwen2-5-14b-cpu]}
+      ports: [{protocol: TCP, port: 8443}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: telemetry-web
+  namespace: telemetry-demo
+  labels: {app.kubernetes.io/part-of: realtime-telemetry}
+spec:
+  replicas: 1
+  strategy: {type: Recreate}
+  selector:
+    matchLabels: {app: telemetry-web}
+  template:
+    metadata:
+      labels: {app: telemetry-web, app.kubernetes.io/part-of: realtime-telemetry}
+    spec:
+      automountServiceAccountToken: false
+      nodeSelector: {kubernetes.io/hostname: WORKER_NODE}
+      dnsPolicy: None
+      dnsConfig:
+        nameservers: [DNS_IP]
+        searches: [telemetry-demo.svc.cluster.local, svc.cluster.local, cluster.local]
+        options: [{name: ndots, value: "5"}]
+      imagePullSecrets: [{name: telemetry-image-pull}]
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: app
+          image: APP_IMAGE
+          command: [python, -m, uvicorn, telemetry.app:app, --host, "0.0.0.0", --port, "8000", --workers, "1"]
+          env:
+            - {name: PGHOST, value: timescaledb.telemetry-demo.svc.cluster.local}
+            - {name: PGDATABASE, value: telemetry}
+            - {name: PGUSER, value: telemetry_app}
+            - name: PGPASSWORD
+              valueFrom: {secretKeyRef: {name: telemetry-agent-credentials, key: app-password}}
+          ports: [{containerPort: 8000}]
+          resources:
+            requests: {cpu: 200m, memory: 384Mi}
+            limits: {cpu: "1", memory: 768Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          startupProbe: {httpGet: {path: /healthz, port: 8000}, periodSeconds: 5, failureThreshold: 30}
+          readinessProbe: {httpGet: {path: /readyz, port: 8000}, periodSeconds: 10}
+          livenessProbe: {httpGet: {path: /healthz, port: 8000}, periodSeconds: 20}
+          volumeMounts:
+            - {name: credentials, mountPath: /run/credentials, readOnly: true}
+            - {name: models, mountPath: /run/models, readOnly: true}
+            - {name: trust, mountPath: /run/trust, readOnly: true}
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        - name: credentials
+          secret: {secretName: telemetry-agent-credentials}
+        - name: models
+          configMap: {name: telemetry-models}
+        - name: trust
+          configMap: {name: telemetry-model-trust}
+        - {name: tmp, emptyDir: {sizeLimit: 32Mi}}

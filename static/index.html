@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#f5f2e9">
+  <title>Fieldnote | Equipment telemetry</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to equipment telemetry</a>
+  <header class="masthead">
+    <a class="brand" href="#main" aria-label="Fieldnote equipment observatory">
+      <svg class="brand-mark" viewBox="0 0 40 40" fill="none" aria-hidden="true">
+        <circle cx="20" cy="20" r="16" stroke="currentColor" stroke-width="1.5"/>
+        <path d="M20 4v9M36 20h-9M20 36v-9M4 20h9M13 13l14 14M13 27l14-14" stroke="currentColor" stroke-width="1.5"/>
+        <circle cx="20" cy="20" r="4" fill="currentColor"/>
+      </svg>
+      <span class="brand-name">fieldnote<span class="brand-caption">Equipment observatory</span></span>
+    </a>
+    <nav class="page-nav" aria-label="Page sections">
+      <a href="#asset-section">Equipment</a><a href="#trends-section">Signals</a><a href="#incident-section">Incidents</a><a href="#library-section">Procedures</a>
+    </nav>
+    <div class="connection"><span id="connection" data-state="connecting">Connecting...</span><small id="updated"></small></div>
+  </header>
+  <main id="main">
+    <section class="intro" aria-labelledby="page-title">
+      <div><div class="eyebrow">NORTHBANK DEMONSTRATION WORKS / FIELD LOG</div>
+        <h1 id="page-title">Machine room<span class="heading-period">.</span></h1>
+      </div>
+      <div class="intro-note"><span class="field-label">Observe. Correlate. Understand.</span>
+        <p>A live reading of equipment condition. <br>Measured signals, documented knowledge, <br>and a little more context.</p>
+        <span class="location-label">On appliance / Azure Local</span>
+      </div>
+    </section>
+    <div class="notice"><span class="notice-label">Simulation only</span><span>Fictional equipment &amp; SOPs. Advisory demonstration; no equipment control or safety certification.</span></div>
+    <div id="error" role="alert" hidden></div>
+    <section class="summary" aria-label="System summary">
+      <div class="stat"><span>01 / Monitored assets</span><strong id="asset-count">-</strong></div>
+      <div class="stat"><span>02 / Active alerts</span><strong id="alert-count">-</strong></div>
+      <div class="stat"><span>03 / Rule evaluator</span><strong id="detector">-</strong></div>
+      <div class="stat"><span>04 / SOP knowledge</span><strong id="index">-</strong></div>
+    </section>
+    <section id="asset-section"><div class="section-title"><div class="section-heading"><span class="section-number">01</span><h2>The equipment floor</h2></div><span>Data freshness &ne; equipment condition</span></div>
+      <div id="equipment" class="equipment-grid"></div>
+    </section>
+    <section id="trends-section" class="panel trend-panel">
+      <div class="section-title"><div><div class="section-heading"><span class="section-number">02</span><h2>Signals over time</h2></div><span>Ten-minute window / five-second averages / gaps stay visible</span></div>
+        <label>Parameter <select id="parameter"></select></label></div>
+      <canvas id="chart" height="250" aria-label="Time series of pump measurements" role="img"></canvas>
+      <div class="legend"><span class="pump1">PUMP-001</span><span class="pump2">PUMP-002</span><span class="pump3">PUMP-003</span></div>
+    </section>
+    <div id="incident-section" class="work-grid">
+      <section class="panel incident-panel">
+        <div class="section-title"><div class="section-heading"><span class="section-number">03</span><h2>Incident desk</h2></div><label class="checkbox-label"><input id="show-resolved" type="checkbox"> Include resolved</label></div>
+        <p class="section-description">Conditions worth a closer look. Every event keeps its evidence.</p>
+        <div id="alerts"></div>
+      </section>
+      <section class="panel diagnosis-panel">
+        <div class="section-title"><div class="section-heading"><span class="section-number section-symbol" aria-hidden="true">&nearr;</span><h2>The investigation</h2></div><span class="workspace-label">SOP-GROUNDED REVIEW</span></div>
+        <p class="muted">Select an alert to inspect the rule evidence, related signals and cited SOP.</p>
+        <div id="detail"></div>
+        <div id="diagnosis-controls" hidden>
+          <label for="model">Inference model</label>
+          <select id="model"></select>
+          <small>Shared model infrastructure; 14B is slower. Only requested diagnoses invoke a model. No automatic model switching.</small>
+          <div class="actions"><button id="diagnose">Generate diagnosis</button><button id="acknowledge" class="secondary">Acknowledge</button></div>
+          <label for="ack-note">Acknowledgement note (optional)</label><input id="ack-note" maxlength="500" placeholder="Observation / review note">
+          <div id="diagnosis-status" role="status"></div>
+        </div>
+        <div id="diagnoses"></div>
+      </section>
+    </div>
+    <section id="library-section" class="library-section">
+      <div class="section-title"><div class="section-heading"><span class="section-number">04</span><h2>From the field manual</h2></div><span>Versioned originals in PostgreSQL / isolated Qdrant index</span></div>
+      <div id="documents" class="documents"></div>
+    </section>
+  </main>
+  <footer><span class="footer-brand">fieldnote / <span>Equipment telemetry</span></span><span>Independent of the warranty assistant. Acknowledgement is not clearance.</span><span class="footer-edition">DEMONSTRATION EDITION</span></footer>
+  <script src="/static/app.js"></script>
+</body>
+</html>

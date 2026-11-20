@@ -1,0 +1,217 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: telemetry-demo
+  labels:
+    app.kubernetes.io/part-of: realtime-telemetry
+    pod-security.kubernetes.io/enforce: restricted
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: telemetry-budget
+  namespace: telemetry-demo
+  labels: {app.kubernetes.io/part-of: realtime-telemetry}
+spec:
+  hard:
+    requests.cpu: "1500m"
+    requests.memory: 3Gi
+    limits.cpu: "3"
+    limits.memory: 4Gi
+    requests.storage: 20Gi
+    persistentvolumeclaims: "1"
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: timescaledb-data
+  namespace: telemetry-demo
+  labels: {app.kubernetes.io/part-of: realtime-telemetry}
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: STORAGE_CLASS
+  resources:
+    requests: {storage: 20Gi}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: timescaledb
+  namespace: telemetry-demo
+  labels: {app.kubernetes.io/part-of: realtime-telemetry}
+spec:
+  selector: {app: timescaledb}
+  ports: [{name: postgres, port: 5432, targetPort: 5432}]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: telemetry-private-network
+  namespace: telemetry-demo
+  labels: {app.kubernetes.io/part-of: realtime-telemetry}
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - podSelector: {matchLabels: {app: pump-simulator}}
+      ports: [{protocol: TCP, port: 5432}]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: kube-system}
+          podSelector:
+            matchLabels: {k8s-app: kube-dns}
+      ports:
+        - {protocol: UDP, port: 53}
+        - {protocol: TCP, port: 53}
+    - to:
+        - podSelector: {matchLabels: {app: timescaledb}}
+      ports: [{protocol: TCP, port: 5432}]
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: timescaledb
+  namespace: telemetry-demo
+  labels: {app.kubernetes.io/part-of: realtime-telemetry}
+spec:
+  serviceName: timescaledb
+  replicas: 1
+  selector:
+    matchLabels: {app: timescaledb}
+  template:
+    metadata:
+      labels: {app: timescaledb, app.kubernetes.io/part-of: realtime-telemetry}
+    spec:
+      automountServiceAccountToken: false
+      nodeSelector: {kubernetes.io/hostname: WORKER_NODE}
+      dnsPolicy: None
+      dnsConfig:
+        nameservers: [DNS_IP]
+        searches: [telemetry-demo.svc.cluster.local, svc.cluster.local, cluster.local]
+        options: [{name: ndots, value: "5"}]
+      imagePullSecrets: [{name: telemetry-image-pull}]
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 70
+        runAsGroup: 70
+        fsGroup: 70
+        seccompProfile: {type: RuntimeDefault}
+      terminationGracePeriodSeconds: 60
+      containers:
+        - name: postgres
+          image: DATABASE_IMAGE
+          args:
+            - postgres
+            - -c
+            - shared_preload_libraries=timescaledb
+            - -c
+            - shared_buffers=256MB
+            - -c
+            - max_connections=30
+            - -c
+            - timescaledb.max_background_workers=4
+            - -c
+            - max_worker_processes=8
+            - -c
+            - timescaledb.telemetry_level=off
+            - -c
+            - password_encryption=scram-sha-256
+          env:
+            - {name: POSTGRES_DB, value: telemetry}
+            - {name: PGDATA, value: /var/lib/postgresql/data/pgdata}
+            - {name: POSTGRES_INITDB_ARGS, value: "--auth-host=scram-sha-256 --auth-local=trust"}
+            - {name: NO_TS_TUNE, value: "true"}
+            - name: POSTGRES_PASSWORD
+              valueFrom: {secretKeyRef: {name: telemetry-database, key: admin-password}}
+            - name: WRITER_PASSWORD
+              valueFrom: {secretKeyRef: {name: telemetry-database, key: writer-password}}
+            - name: READER_PASSWORD
+              valueFrom: {secretKeyRef: {name: telemetry-database, key: reader-password}}
+          ports: [{containerPort: 5432, name: postgres}]
+          resources:
+            requests: {cpu: 500m, memory: 1Gi}
+            limits: {cpu: "1", memory: 2Gi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          startupProbe:
+            exec: {command: [psql, -U, postgres, -d, telemetry, -Atqc, "SELECT 1 FROM telemetry.equipment LIMIT 1"]}
+            periodSeconds: 5
+            failureThreshold: 60
+          readinessProbe:
+            exec: {command: [psql, -U, postgres, -d, telemetry, -Atqc, "SELECT 1 FROM telemetry.equipment LIMIT 1"]}
+            periodSeconds: 10
+          livenessProbe:
+            exec: {command: [pg_isready, -U, postgres, -d, telemetry]}
+            periodSeconds: 15
+            failureThreshold: 6
+          volumeMounts:
+            - {name: data, mountPath: /var/lib/postgresql/data}
+            - {name: socket, mountPath: /var/run/postgresql}
+            - {name: tmp, mountPath: /tmp}
+            - {name: init, mountPath: /docker-entrypoint-initdb.d, readOnly: true}
+      volumes:
+        - name: data
+          persistentVolumeClaim: {claimName: timescaledb-data}
+        - {name: socket, emptyDir: {}}
+        - {name: tmp, emptyDir: {sizeLimit: 64Mi}}
+        - name: init
+          configMap: {name: telemetry-schema}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pump-simulator
+  namespace: telemetry-demo
+  labels: {app.kubernetes.io/part-of: realtime-telemetry}
+spec:
+  replicas: 1
+  strategy: {type: Recreate}
+  selector:
+    matchLabels: {app: pump-simulator}
+  template:
+    metadata:
+      labels: {app: pump-simulator, app.kubernetes.io/part-of: realtime-telemetry}
+    spec:
+      automountServiceAccountToken: false
+      nodeSelector: {kubernetes.io/hostname: WORKER_NODE}
+      dnsPolicy: None
+      dnsConfig:
+        nameservers: [DNS_IP]
+        searches: [telemetry-demo.svc.cluster.local, svc.cluster.local, cluster.local]
+        options: [{name: ndots, value: "5"}]
+      imagePullSecrets: [{name: telemetry-image-pull}]
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: simulator
+          image: SIMULATOR_IMAGE
+          env:
+            - {name: PGHOST, value: timescaledb.telemetry-demo.svc.cluster.local}
+            - {name: PGPORT, value: "5432"}
+            - {name: PGDATABASE, value: telemetry}
+            - {name: PGUSER, value: telemetry_writer}
+            - name: PGPASSWORD
+              valueFrom: {secretKeyRef: {name: telemetry-database, key: writer-password}}
+          resources:
+            requests: {cpu: 50m, memory: 128Mi}
+            limits: {cpu: 250m, memory: 128Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          readinessProbe:
+            exec: {command: [python, -m, telemetry.simulator, --health-check]}
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        - {name: tmp, emptyDir: {sizeLimit: 16Mi}}
