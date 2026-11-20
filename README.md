@@ -1,5 +1,8 @@
 # Equipment telemetry AI agent on Azure Local
 
+[Project overview](https://msft-innovation-hub-india.github.io/azure-local-telemetry-ai-agent/) |
+[Source code](https://github.com/MSFT-Innovation-Hub-India/azure-local-telemetry-ai-agent)
+
 A reproducible demonstration of live, fictional pump telemetry, deterministic
 condition alerts and SOP-grounded AI explanations on an existing Azure Local
 Arc-enabled Kubernetes cluster.
@@ -99,3 +102,10 @@ The database and application are single replica. The demo has no end-user auth,
 database TLS, backups/HA, external alert delivery or equipment control.
 Image-pull tokens are short-lived. See the architecture and operations guides
 before exposing or adapting the solution.
+
+## Public project page
+
+GitHub Pages publishes the project overview from `docs/index.md`, using the
+`main` branch's `/docs` folder. `docs/_config.yml` configures the Cayman theme,
+SEO metadata and generated sitemap; `docs/robots.txt` advertises the sitemap.
+The page is crawlable, but search engines decide whether and when to index it.

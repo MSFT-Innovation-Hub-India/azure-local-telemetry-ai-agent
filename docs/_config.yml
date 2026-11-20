@@ -1,0 +1,18 @@
+title: Azure Local Telemetry AI Agent
+description: Real-time equipment monitoring on Azure Local with simulated pump telemetry, TimescaleDB, deterministic alerts, and SOP-grounded AI explanations using Foundry Local models.
+url: https://msft-innovation-hub-india.github.io
+baseurl: /azure-local-telemetry-ai-agent
+lang: en
+theme: jekyll-theme-cayman
+show_downloads: false
+github:
+  repository_url: https://github.com/MSFT-Innovation-Hub-India/azure-local-telemetry-ai-agent
+social:
+  name: Microsoft Innovation Hub India
+plugins:
+  - jekyll-seo-tag
+  - jekyll-sitemap
+  - jekyll-relative-links
+relative_links:
+  enabled: true
+  collections: false
