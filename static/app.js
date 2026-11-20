@@ -152,4 +152,84 @@ $("show-resolved").onchange=()=>overview&&renderAlerts();
 for(const [field,[label,unit]] of Object.entries(signals))$("parameter").add(new Option(`${label} (${unit})`,field));
 $("parameter").onchange=drawChart;
 window.addEventListener("resize",drawChart);
+
+const counts = new Intl.NumberFormat(), reduceMotion = matchMedia("(prefers-reduced-motion: reduce)");
+const dataFields = Object.keys(signals);
+let dataSummary = null, dataAsset = localStorage.getItem("telemetry-data-equipment"), knownRows = null, dataTimer = null;
+const meters = {};
+function bytes(value) {
+  if (!Number.isFinite(value)) return "unavailable";
+  const units = ["B","KiB","MiB","GiB","TiB"]; let i = 0;
+  while (value >= 1024 && i < units.length - 1) { value /= 1024; i++; }
+  return `${value.toFixed(i ? 1 : 0)} ${units[i]}`;
+}
+function span(milliseconds) {
+  const minutes = Math.floor(milliseconds / 60000);
+  if (minutes < 60) return `${minutes} min of history`;
+  return minutes < 2880 ? `${(minutes / 60).toFixed(1)} h of history` : `${(minutes / 1440).toFixed(1)} days of history`;
+}
+function tick(id, target, reset) {
+  const meter = meters[id] ??= {shown: target, frame: 0}, element = $(id);
+  cancelAnimationFrame(meter.frame);
+  if (reset || reduceMotion.matches || !Number.isFinite(meter.shown)) { meter.shown = target; element.textContent = counts.format(target); return; }
+  const from = meter.shown, began = performance.now(), duration = 1800;
+  const step = now => {
+    const progress = Math.min(1, (now - began) / duration);
+    meter.shown = from + (target - from) * progress;
+    element.textContent = counts.format(Math.round(meter.shown));
+    if (progress < 1) meter.frame = requestAnimationFrame(step);
+  };
+  meter.frame = requestAnimationFrame(step);
+}
+function renderDataSummary(reset = false) {
+  const s = dataSummary, asset = s.equipment.find(a => a.equipment_id === dataAsset);
+  tick("meter-total", s.total_rows, reset);
+  $("meter-rate").textContent = `${counts.format(s.rows_last_minute)} stored in the last minute`;
+  $("meter-asset-label").textContent = `Rows for ${asset.equipment_id}`;
+  tick("meter-asset", asset.rows, reset);
+  $("meter-asset-rate").textContent = `${counts.format(asset.rows_last_minute)} in the last minute`;
+  $("meter-first").textContent = asset.first_sample ? date(asset.first_sample) : "-";
+  $("meter-span").textContent = asset.first_sample && asset.latest_sample ? span(new Date(asset.latest_sample) - new Date(asset.first_sample)) : "";
+  $("meter-latest").textContent = asset.latest_sample ? date(asset.latest_sample) : "-";
+  $("meter-lag").textContent = asset.latest_sample ? `${Math.max(0, (new Date(s.server_time) - new Date(asset.latest_sample)) / 1000).toFixed(1)} s ago` : "";
+  const st = s.storage, share = st.database_bytes / st.volume_bytes;
+  $("meter-size").textContent = bytes(st.database_bytes);
+  $("meter-retention").textContent = [st.retention && `kept ${st.retention}`, st.chunks != null && `${st.chunks} daily chunks`].filter(Boolean).join(" / ") || "\u00a0";
+  $("storage-fill").style.width = `${Number.isFinite(share) ? Math.min(100, share * 100) : 0}%`;
+  $("data-note").textContent = Number.isFinite(share)
+    ? `Database ${bytes(st.database_bytes)} (samples ${bytes(st.samples_bytes)}) of the ${bytes(st.volume_bytes)} volume = ${(share * 100).toFixed(2)}%; excludes WAL. Retention drops expired data automatically, one whole daily chunk at a time.`
+    : "Storage size is unavailable to this database role.";
+}
+function renderDataRows(rows, reset) {
+  $("data-head").innerHTML = `<tr><th>Measured at</th><th>Seq</th><th>Stored after</th>${dataFields.map(f => `<th>${escape(signals[f][0])} (${escape(signals[f][1])})</th>`).join("")}</tr>`;
+  const seen = new Set(rows.map(r => r.event_id));
+  $("data-rows").innerHTML = rows.map(r => {
+    const fresh = knownRows && !reset && !knownRows.has(r.event_id);
+    return `<tr${fresh ? ' class="fresh"' : ""}><td>${escape(new Date(r.measured_at).toLocaleTimeString())}</td><td>${escape(r.sequence)}</td>
+      <td>${Math.max(0, new Date(r.ingested_at) - new Date(r.measured_at))} ms</td>${dataFields.map(f => `<td>${num(r[f])}</td>`).join("")}</tr>`;
+  }).join("") || `<tr><td colspan="${3 + dataFields.length}">No rows stored for this equipment yet.</td></tr>`;
+  knownRows = seen;
+}
+async function refreshData(reset = false) {
+  clearTimeout(dataTimer);
+  try {
+    if (!document.hidden) {
+      dataSummary = await api("/api/data/summary");
+      const select = $("data-equipment");
+      if (!select.options.length) for (const a of dataSummary.equipment) select.add(new Option(a.equipment_id, a.equipment_id));
+      if (!dataSummary.equipment.some(a => a.equipment_id === dataAsset)) dataAsset = dataSummary.equipment[0].equipment_id;
+      select.value = dataAsset;
+      const rows = await api(`/api/data/recent?equipment_id=${encodeURIComponent(dataAsset)}&limit=15`);
+      renderDataSummary(reset); renderDataRows(rows, reset);
+    }
+  } catch (error) { $("data-note").textContent = error.message; }
+  finally { dataTimer = setTimeout(refreshData, 2000); }
+}
+$("data-equipment").onchange = () => {
+  dataAsset = $("data-equipment").value;
+  localStorage.setItem("telemetry-data-equipment", dataAsset);
+  refreshData(true);
+};
+document.addEventListener("visibilitychange", () => { if (!document.hidden) refreshData(true); });
+refreshData(true);
 refresh();

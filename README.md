@@ -23,7 +23,7 @@ not a combined UI or deployment.
 | [Shared-service prerequisites](docs/DEPENDENCIES.md) | Exact external contracts, optional DNS Service setup, and fresh-lab setup using the companion project |
 | [Architecture and design](docs/ARCHITECTURE.md) | Components, data/request flows, database model, rules, RAG, security, capacity and design trade-offs |
 | [Code and extension guide](docs/DEVELOPMENT.md) | File/function map, configuration, APIs, tests, SOP/rule authoring and limitations when adapting the code |
-| [Demo and operations runbook](docs/ANALYSIS.md) | UI walkthrough, both models, operating procedures, troubleshooting and measured validation results |
+| [Demo and operations runbook](docs/ANALYSIS.md) | UI walkthrough, bringing the demo up with `tools\start-demo.ps1`, both models, operating procedures, troubleshooting and measured validation results |
 
 **For a new environment:** follow the deployment guide from the beginning. Do not
 apply the YAML files directly: they contain placeholders, and the deployers perform

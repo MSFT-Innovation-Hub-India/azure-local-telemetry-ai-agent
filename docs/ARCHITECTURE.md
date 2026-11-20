@@ -141,7 +141,14 @@ There is no durable device queue, MQTT broker or exactly-once end-to-end guarant
 
 At the nominal rate, three rows every two seconds is approximately 129,600 rows
 per day. The 20 GiB allocation is a lab choice, not a measured retention/capacity
-guarantee. There is no configured compression or continuous aggregate; charts use
+guarantee. Measured on the demo cluster: about 926,000 rows occupied 330 MB
+(roughly 350 bytes per row including indexes) across eight daily chunks. Because
+retention drops whole daily chunks, the table holds seven to eight days, about
+one million rows or 0.4 GB, so the 20 GiB volume is not at risk from telemetry
+alone; the UI's data-store panel shows the live size and retention window. The
+web application's database role is read-only for telemetry, so the UI has no
+purge control: adjust retention in `db/001-schema.sql` or have an operator run
+`drop_chunks` as the database administrator. There is no configured compression or continuous aggregate; charts use
 ordinary time-bucket queries. Analysis/history tables and old Qdrant collections
 do not have automatic retention.
 

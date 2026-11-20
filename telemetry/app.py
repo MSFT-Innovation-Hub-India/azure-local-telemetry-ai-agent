@@ -16,6 +16,7 @@ import psycopg
 from psycopg.types.json import Jsonb
 from pydantic import BaseModel, Field
 
+from telemetry import datastore
 from telemetry.knowledge import DependencyError, Knowledge, ROOT, complete, load_models, seed_documents
 from telemetry.rules import FIELDS, summarize
 from telemetry.store import connect, detect_tick
@@ -144,6 +145,19 @@ def trends(seconds: int = Query(default=600, ge=60, le=1800)):
                 GROUP BY equipment_id,time_bucket('5 seconds',measured_at)
                 ORDER BY measured_at""", (seconds,),
         ).fetchall()
+
+
+@app.get("/api/data/summary")
+def data_summary():
+    return datastore.summary()
+
+
+@app.get("/api/data/recent")
+def data_recent(equipment_id: str = Query(min_length=1, max_length=40), limit: int = Query(default=20, ge=1, le=100)):
+    rows = datastore.recent(equipment_id, limit)
+    if rows is None:
+        raise HTTPException(404, "Equipment not found")
+    return rows
 
 
 @app.get("/api/documents/{document_id}")

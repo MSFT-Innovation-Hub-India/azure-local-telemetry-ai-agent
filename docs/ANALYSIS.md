@@ -22,6 +22,38 @@ contend for CPU/model capacity. There is no cross-application global inference
 queue. Telemetry permits one diagnosis at a time and returns HTTP 409 when busy.
 The existing warranty app's concurrency mechanism is unchanged.
 
+## Bringing the demo up
+
+The workloads keep running on the appliance; only the laptop access (Arc proxy and
+port-forwards) needs restarting. One script does it:
+
+```powershell
+az login                                   # only if your Azure session has expired
+.\tools\start-demo.ps1                     # telemetry on http://127.0.0.1:8090
+.\tools\start-demo.ps1 -IncludeWarranty    # also the warranty assistant on :8080
+```
+
+The script selects the `zines-22325-aks` kubectl context, starts
+`az connectedk8s proxy` for `zines-22325-rg` / `zines-22325-aks` (or reuses an
+already-reachable proxy and leaves it running), starts the port-forward(s), waits
+until each port accepts connections and opens the browser (`-NoBrowser` to skip).
+It restarts a port-forward that exits, for example after an app upgrade. Press
+Ctrl+C to stop only the processes it started. Parameters: `-ResourceGroup`,
+`-ClusterName`, `-Context`, `-TelemetryPort`, `-WarrantyPort`. If a local port is
+already in use the script stops rather than killing anything; reuse that tunnel or
+pass another port. Logs: `%TEMP%\telemetry-demo-access`.
+
+The equivalent manual commands, each in its own terminal:
+
+```powershell
+az connectedk8s proxy --resource-group zines-22325-rg --name zines-22325-aks
+kubectl config use-context zines-22325-aks
+kubectl --context zines-22325-aks -n telemetry-demo port-forward svc/telemetry-web --address 127.0.0.1 8090:80
+kubectl --context zines-22325-aks -n assistant-demo port-forward svc/assistant-web --address 127.0.0.1 8080:80
+```
+
+For another environment, use the `$Context` form below.
+
 If the laptop tunnels need reopening, keep these in separate terminals while the
 existing Arc proxy is active:
 
@@ -46,6 +78,10 @@ browser tunnels.
 1. Open the telemetry URL. Review equipment freshness, the evaluator and SOP index.
 2. Select a chart parameter. The chart uses five-second averages over ten minutes;
    missing buckets produce visible gaps, not interpolated healthy readings.
+   Under **The data store**, the row counters tick up as the simulator writes,
+   and the table shows the newest raw rows in TimescaleDB for the selected
+   equipment (PUMP-001 by default), each with its own timestamp and sequence.
+   Use the equipment selector to inspect another pump. The panel is read-only.
 3. Select an alert. Read the triggering evidence, potential impact, related
    parameters, missing observations and exact SOP revision/section.
 4. Choose **qwen2.5-0.5b** or **qwen2.5-14b** in the diagnostic workspace. The default

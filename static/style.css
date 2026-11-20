@@ -108,6 +108,22 @@ canvas { width: 100%; height: 250px; display: block; }
 .legend .pump2::before { border-top-style: dashed; }
 .legend .pump3::before { border-top-style: dotted; }
 
+.data-panel { padding: 27px 0; border-bottom: 1px solid var(--line); margin-bottom: 8px; }
+.meters { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); border-block: 1px solid var(--ink); padding: 18px 0; margin: 18px 0 0; }
+.meter { padding: 0 18px; border-right: 1px solid var(--line); min-width: 0; }
+.meter:first-child { padding-left: 0; }
+.meter:last-child { border-right: 0; }
+.meter > span { display: block; font: 11px/1.5 var(--mono); color: var(--muted); }
+.meter strong { display: block; margin-top: 8px; font: 500 19px/1.3 var(--mono); letter-spacing: -.5px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.meter:nth-child(-n+2) strong { font: 34px/1.1 var(--display); }
+.meter small { display: block; margin-top: 6px; font: 10px/1.5 var(--mono); color: var(--muted); }
+.storage-track { height: 4px; background: var(--line); margin-bottom: 4px; }
+.storage-track span { display: block; height: 100%; width: 0; min-width: 2px; background: var(--copper); transition: width .6s ease; }
+.data-table th, .data-table td { white-space: nowrap; }
+.data-table tbody tr.fresh { animation: arrive 1.8s ease-out; }
+@keyframes arrive { from { background: var(--copper-wash); } to { background: transparent; } }
+@media (prefers-reduced-motion: reduce) { .data-table tbody tr.fresh { animation: none; } .storage-track span { transition: none; } }
+
 .work-grid { display: grid; grid-template-columns: .85fr 1.3fr; gap: 24px; align-items: start; scroll-margin-top: 24px; }
 .incident-panel { background: transparent; padding: 24px 0; border: 0; }
 .incident-panel .section-title { align-items: baseline; flex-wrap: wrap; }
@@ -186,6 +202,10 @@ footer { border-top: 1px solid var(--line); padding: 24px 0; display: flex; alig
   .intro-note { min-width: 220px; }
   .intro-note p { font-size: 12px; }
   .stat { padding: 0 16px; }
+  .meters { grid-template-columns: repeat(2, minmax(0, 1fr)); row-gap: 18px; }
+  .meter { padding: 0 16px; }
+  .meter:nth-child(odd) { padding-left: 0; }
+  .meter:nth-child(even) { border-right: 0; }
   .stat strong { font-size: 22px; }
   .equipment-grid { grid-template-columns: 1fr; gap: 14px; }
   .asset-title { margin-bottom: 18px; }

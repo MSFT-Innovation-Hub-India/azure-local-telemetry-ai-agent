@@ -15,6 +15,7 @@ that write to Kubernetes see [deployment](DEPLOYMENT.md).
 | [telemetry/simulator.py](../telemetry/simulator.py) | Synthetic signal generation, transactional ingestion, retry/heartbeat |
 | [telemetry/rules.py](../telemetry/rules.py) | Immutable rule definitions, sustained windows, severity and summaries |
 | [telemetry/store.py](../telemetry/store.py) | Connections, detector transaction, incident persistence and resolution |
+| [telemetry/datastore.py](../telemetry/datastore.py) | Read-only data-store panel queries: row counts, first/latest sample, storage size, newest rows |
 | [telemetry/knowledge.py](../telemetry/knowledge.py) | Original SOP seeding, chunking, vectors, retrieval, model allowlist and streamed completions |
 | [telemetry/app.py](../telemetry/app.py) | FastAPI lifecycle, independent threads, routes, acknowledgement and diagnosis orchestration |
 | [static/index.html](../static/index.html) | Independent dashboard structure and controls |
@@ -29,6 +30,7 @@ that write to Kubernetes see [deployment](DEPLOYMENT.md).
 | [deploy/analysis.yaml](../deploy/analysis.yaml) | Telemetry web Service/Deployment and additive egress/database policies |
 | [deploy/shared-access.yaml](../deploy/shared-access.yaml) | Narrow shared-namespace Qdrant/embedding ingress permission |
 | [tools/build_acr.ps1](../tools/build_acr.ps1) | Remote builds/imports, digest resolution and local image metadata |
+| [tools/start-demo.ps1](../tools/start-demo.ps1) | Laptop access: kubectl context, Arc proxy (reused if present) and demo port-forwards |
 | [tools/deploy.py](../tools/deploy.py) | Foundation deployment, common kubectl/capacity/ownership/placement helpers |
 | [tools/deploy_analysis.py](../tools/deploy_analysis.py) | Independent app deployment, shared credential/trust copy and analysis migration |
 | [tests/](../tests/) | Unit tests plus live SQL integration checks |
@@ -146,6 +148,8 @@ These are lab interfaces, not authenticated production API endpoints.
 | GET `/readyz` | Recent detector tick; 503 if absent or older than 25 s |
 | GET `/api/overview` | `server_time`, equipment, newest 100 alerts, documents, public model IDs/labels, detector/index state, busy flag |
 | GET `/api/trends?seconds=600` | Five-second means; accepts 60-1,800 seconds |
+| GET `/api/data/summary` | Exact total and per-asset row counts, first/latest sample, rows in the last minute, hypertable/database size, chunk count and retention window. Rows older than today's UTC midnight are cached for 5 minutes; today's rows are counted live. Size, chunk and retention fields are null if the read-only role cannot read them. `TELEMETRY_VOLUME_GIB` (default 20) sets the volume size used for the usage bar |
+| GET `/api/data/recent?equipment_id=PUMP-001&limit=20` | Newest stored rows for one asset (1-100); 404 for an unknown asset |
 | GET `/api/documents/{id}?revision=1.0` | Original Markdown text; 404 if unavailable |
 | GET `/api/alerts/{uuid}` | Alert, complete event history and latest 20 saved diagnoses |
 | POST `/api/alerts/{uuid}/acknowledge` | JSON `{"note":"..."}`, maximum 500 characters |

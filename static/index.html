@@ -18,7 +18,7 @@
       <span class="brand-name">fieldnote<span class="brand-caption">Equipment observatory</span></span>
     </a>
     <nav class="page-nav" aria-label="Page sections">
-      <a href="#asset-section">Equipment</a><a href="#trends-section">Signals</a><a href="#incident-section">Incidents</a><a href="#library-section">Procedures</a>
+      <a href="#asset-section">Equipment</a><a href="#trends-section">Signals</a><a href="#data-section">Data</a><a href="#incident-section">Incidents</a><a href="#library-section">Procedures</a>
     </nav>
     <div class="connection"><span id="connection" data-state="connecting">Connecting...</span><small id="updated"></small></div>
   </header>
@@ -49,9 +49,25 @@
       <canvas id="chart" height="250" aria-label="Time series of pump measurements" role="img"></canvas>
       <div class="legend"><span class="pump1">PUMP-001</span><span class="pump2">PUMP-002</span><span class="pump3">PUMP-003</span></div>
     </section>
+    <section id="data-section" class="data-panel">
+      <div class="section-title"><div><div class="section-heading"><span class="section-number">03</span><h2>The data store</h2></div><span>What TimescaleDB holds right now / exact row counts / newest rows first</span></div>
+        <label>Equipment <select id="data-equipment"></select></label></div>
+      <div class="meters" aria-live="off">
+        <div class="meter"><span>Rows in database</span><strong id="meter-total">-</strong><small id="meter-rate">&nbsp;</small></div>
+        <div class="meter"><span id="meter-asset-label">Rows for equipment</span><strong id="meter-asset">-</strong><small id="meter-asset-rate">&nbsp;</small></div>
+        <div class="meter"><span>Earliest sample</span><strong id="meter-first">-</strong><small id="meter-span">&nbsp;</small></div>
+        <div class="meter"><span>Latest sample</span><strong id="meter-latest">-</strong><small id="meter-lag">&nbsp;</small></div>
+        <div class="meter"><span>Database size</span><strong id="meter-size">-</strong><small id="meter-retention">&nbsp;</small></div>
+      </div>
+      <div class="storage-track" role="img" aria-label="Database size against configured volume"><span id="storage-fill"></span></div>
+      <div class="evidence-scroll" role="region" aria-label="Newest stored rows" tabindex="0">
+        <table class="evidence-table data-table"><thead id="data-head"></thead><tbody id="data-rows"></tbody></table>
+      </div>
+      <small id="data-note" class="facts"></small>
+    </section>
     <div id="incident-section" class="work-grid">
       <section class="panel incident-panel">
-        <div class="section-title"><div class="section-heading"><span class="section-number">03</span><h2>Incident desk</h2></div><label class="checkbox-label"><input id="show-resolved" type="checkbox"> Include resolved</label></div>
+        <div class="section-title"><div class="section-heading"><span class="section-number">04</span><h2>Incident desk</h2></div><label class="checkbox-label"><input id="show-resolved" type="checkbox"> Include resolved</label></div>
         <p class="section-description">Conditions worth a closer look. Every event keeps its evidence.</p>
         <div id="alerts"></div>
       </section>
@@ -71,7 +87,7 @@
       </section>
     </div>
     <section id="library-section" class="library-section">
-      <div class="section-title"><div class="section-heading"><span class="section-number">04</span><h2>From the field manual</h2></div><span>Versioned originals in PostgreSQL / isolated Qdrant index</span></div>
+      <div class="section-title"><div class="section-heading"><span class="section-number">05</span><h2>From the field manual</h2></div><span>Versioned originals in PostgreSQL / isolated Qdrant index</span></div>
       <div id="documents" class="documents"></div>
     </section>
   </main>
