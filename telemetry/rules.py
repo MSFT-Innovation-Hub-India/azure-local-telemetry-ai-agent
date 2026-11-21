@@ -11,6 +11,8 @@ FIELDS = (
     "flow_m3_h", "lubricant_pressure_bar", "ambient_temperature_c",
 )
 OPS = {">=": operator.ge, "<=": operator.le}
+CRITICAL_SECONDS = 20
+WARNING_SECONDS = 30
 
 
 @dataclass(frozen=True)
@@ -87,9 +89,9 @@ def sustained(samples, conditions, seconds, now):
 
 
 def severity(rule, samples, now):
-    if sustained(samples, rule.critical, 20, now):
+    if sustained(samples, rule.critical, CRITICAL_SECONDS, now):
         return "critical"
-    if sustained(samples, rule.warning, 30, now):
+    if sustained(samples, rule.warning, WARNING_SECONDS, now):
         return "warning"
     return None
 

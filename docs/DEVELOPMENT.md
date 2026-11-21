@@ -16,6 +16,7 @@ that write to Kubernetes see [deployment](DEPLOYMENT.md).
 | [telemetry/rules.py](../telemetry/rules.py) | Immutable rule definitions, sustained windows, severity and summaries |
 | [telemetry/store.py](../telemetry/store.py) | Connections, detector transaction, incident persistence and resolution |
 | [telemetry/datastore.py](../telemetry/datastore.py) | Read-only data-store panel queries: row counts, first/latest sample, storage size, newest rows |
+| [telemetry/monitor.py](../telemetry/monitor.py) | Read-only rule monitor: per-condition and combined violation history (TimescaleDB `time_bucket` + `bool_and`), current state and chart thresholds, all derived from `rules.py` |
 | [telemetry/knowledge.py](../telemetry/knowledge.py) | Original SOP seeding, chunking, vectors, retrieval, model allowlist and streamed completions |
 | [telemetry/app.py](../telemetry/app.py) | FastAPI lifecycle, independent threads, routes, acknowledgement and diagnosis orchestration |
 | [static/index.html](../static/index.html) | Independent dashboard structure and controls |
@@ -148,6 +149,7 @@ These are lab interfaces, not authenticated production API endpoints.
 | GET `/readyz` | Recent detector tick; 503 if absent or older than 25 s |
 | GET `/api/overview` | `server_time`, equipment, newest 100 alerts, documents, public model IDs/labels, detector/index state, busy flag |
 | GET `/api/trends?seconds=600` | Five-second means; accepts 60-1,800 seconds |
+| GET `/api/rules/monitor?minutes=10` | Rule definitions and thresholds from `rules.py`, per asset/rule current condition state, open alert, streak of continuous combined violation and five-second history lanes (`1` violated, `0` not, `null` no data) for the window (1-30 minutes). A bucket counts as violating only if every sample in it does. Display-only; it never changes alerts |
 | GET `/api/data/summary` | Exact total and per-asset row counts, first/latest sample, rows in the last minute, hypertable/database size, chunk count and retention window. Rows older than today's UTC midnight are cached for 5 minutes; today's rows are counted live. Size, chunk and retention fields are null if the read-only role cannot read them. `TELEMETRY_VOLUME_GIB` (default 20) sets the volume size used for the usage bar |
 | GET `/api/data/recent?equipment_id=PUMP-001&limit=20` | Newest stored rows for one asset (1-100); 404 for an unknown asset |
 | GET `/api/documents/{id}?revision=1.0` | Original Markdown text; 404 if unavailable |

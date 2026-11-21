@@ -82,6 +82,15 @@ browser tunnels.
    and the table shows the newest raw rows in TimescaleDB for the selected
    equipment (PUMP-001 by default), each with its own timestamp and sequence.
    Use the equipment selector to inspect another pump. The panel is read-only.
+   **The rule monitor** shows, per pump and SOP rule, every condition with its live
+   value and threshold (red when violated), a bar for how long all conditions have
+   been violated together against the sustained time, and a 5/10/15-minute timeline
+   with one lane per condition plus "all together" lanes. Amber is one condition;
+   red is the combined condition that opens an alert. PUMP-003 is the quiet control.
+   The signal chart also draws each parameter's warning/critical thresholds and
+   thickens a line in red where it crosses the warning threshold. This view is
+   display-only: it reads the same thresholds as the detector and never opens or
+   clears alerts.
 3. Select an alert. Read the triggering evidence, potential impact, related
    parameters, missing observations and exact SOP revision/section.
 4. Choose **qwen2.5-0.5b** or **qwen2.5-14b** in the diagnostic workspace. The default

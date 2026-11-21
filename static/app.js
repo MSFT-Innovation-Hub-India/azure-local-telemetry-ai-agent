@@ -7,7 +7,7 @@ const signals = {
   motor_current_a: ["Motor current", "A"], motor_temperature_c: ["Motor temperature", "C"],
   speed_rpm: ["Speed", "rpm"], ambient_temperature_c: ["Ambient temperature", "C"]
 };
-let overview = null, trendRows = [], selected = null, busy = false, details = null;
+let overview = null, trendRows = [], selected = null, busy = false, details = null, monitorData = null;
 const escape = text => String(text ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const date = value => value ? new Date(value).toLocaleString() : "-";
 const num = value => typeof value === "number" ? value.toFixed(2) : "-";
@@ -102,19 +102,36 @@ function drawChart() {
   c.fillStyle = theme.getPropertyValue("--muted").trim();
   c.font = `11px ${theme.getPropertyValue("--mono").trim()}`;
   const field = $("parameter").value, values = trendRows.map(r => r[field]).filter(Number.isFinite);
+  const limits = monitorData?.thresholds[field] || [];
   if (!values.length) { c.fillText("Waiting for telemetry history...",30,40); return; }
-  const min = Math.min(...values), max = Math.max(...values), pad = Math.max((max-min)*.15,.2);
+  const spread = values.concat(limits.map(t => t.value));
+  const min = Math.min(...spread), max = Math.max(...spread), pad = Math.max((max-min)*.15,.2);
   const low = min-pad, high=max+pad, start = Date.now()-600000, end=Date.now();
   const left=55,right=width-15,top=15,bottom=215;
   c.strokeStyle=theme.getPropertyValue("--line").trim();
   for(let i=0;i<5;i++){const y=top+(bottom-top)*i/4;c.beginPath();c.moveTo(left,y);c.lineTo(right,y);c.stroke();c.fillText((high-(high-low)*i/4).toFixed(1),5,y+4);}
   c.fillText(new Date(start).toLocaleTimeString(),left,240);c.fillText(new Date(end).toLocaleTimeString(),Math.max(left,right-70),240);
+  const yOf = v => bottom-(v-low)/(high-low)*(bottom-top);
+  const violates = v => limits.some(t => t.level === "warning" && (t.op === ">=" ? v >= t.value : v <= t.value));
+  const red = theme.getPropertyValue("--red").trim(), amber = theme.getPropertyValue("--amber").trim();
+  for (const t of limits) {
+    c.save(); c.strokeStyle = c.fillStyle = t.level === "critical" ? red : amber; c.lineWidth = 1; c.setLineDash([5,4]);
+    c.beginPath(); c.moveTo(left,yOf(t.value)); c.lineTo(right,yOf(t.value)); c.stroke(); c.setLineDash([]);
+    c.fillText(`${t.level} ${t.op} ${t.value}`,left+4,yOf(t.value)-4); c.restore();
+  }
   ["PUMP-001","PUMP-002","PUMP-003"].forEach((asset,i) => {
     c.beginPath();c.strokeStyle=theme.getPropertyValue(["--series-one","--series-two","--series-three"][i]).trim();c.lineWidth=2;c.setLineDash([[],[6,4],[2,4]][i]);let previous=null;
     for(const row of trendRows.filter(r=>r.equipment_id===asset)){
       const t=new Date(row.measured_at).getTime();if(!Number.isFinite(row[field])||t<start)continue;
-      const x=left+(t-start)/(end-start)*(right-left),y=bottom-(row[field]-low)/(high-low)*(bottom-top);
+      const x=left+(t-start)/(end-start)*(right-left),y=yOf(row[field]);
       if(previous===null||t-previous>10000)c.moveTo(x,y);else c.lineTo(x,y);previous=t;
+    }c.stroke();
+    c.setLineDash([]);c.strokeStyle=red;c.lineWidth=3.5;c.beginPath();previous=null;let hot=false;
+    for(const row of trendRows.filter(r=>r.equipment_id===asset)){
+      const t=new Date(row.measured_at).getTime();if(!Number.isFinite(row[field])||t<start)continue;
+      const x=left+(t-start)/(end-start)*(right-left),y=yOf(row[field]),now=violates(row[field]);
+      if(now&&hot&&t-previous<=10000)c.lineTo(x,y);else if(now)c.moveTo(x,y);
+      hot=now;previous=t;
     }c.stroke();
   });
 }
@@ -152,6 +169,69 @@ $("show-resolved").onchange=()=>overview&&renderAlerts();
 for(const [field,[label,unit]] of Object.entries(signals))$("parameter").add(new Option(`${label} (${unit})`,field));
 $("parameter").onchange=drawChart;
 window.addEventListener("resize",drawChart);
+
+let monitorTimer = null;
+const opText = op => op === ">=" ? "\u2265" : "\u2264";
+const condText = c => `${signals[c.field][0]} ${opText(c.op)} ${c.value}`;
+const clock = seconds => `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+const condRows = (conds, met, sample) => conds.map((c, i) => `<div class="cond${met[i] ? " violated" : ""}"><span>${escape(signals[c.field][0])}</span><b>${sample ? num(sample[c.field]) : "-"} <small>${escape(signals[c.field][1])}</small></b><em>${opText(c.op)} ${escape(c.value)}</em></div>`).join("");
+function ruleBlock(def, rule, sample, eq, index) {
+  const needed = def.sustained_seconds, open = rule.alert;
+  const level = rule.critical.all_met || rule.critical.streak_seconds ? "critical" : "warning";
+  const streak = rule[level].streak_seconds, pct = open ? 100 : Math.min(100, streak / needed[level] * 100);
+  const status = open ? [`${open.severity} alert open`, open.severity]
+    : rule.warning.all_met ? [`building ${clock(Math.min(streak, needed.warning))} / ${clock(needed.warning)}`, "warning"] : ["within limits", "normal"];
+  const together = open ? `Alert open since ${date(open.opened_at)}`
+    : streak ? `Violated together for about ${clock(Math.min(streak, needed[level]))} of the ${clock(needed[level])} ${level} needs`
+    : "Conditions are not violated together right now";
+  return `<div class="rule-block"><div class="rule-head"><strong>${escape(def.title)}</strong>${badge(status[0], status[1])}</div>
+    <div class="cond-group"><span class="cond-head">Warning: all together for ${needed.warning} s</span>${condRows(def.warning, rule.warning.met, sample)}</div>
+    <div class="cond-group"><span class="cond-head">Critical: all together for ${needed.critical} s</span>${condRows(def.critical, rule.critical.met, sample)}</div>
+    <div class="together"><small>${escape(together)}</small><div class="storage-track"><span class="${level}" style="width:${pct}%"></span></div></div>
+    <canvas class="lanes" data-equipment="${eq}" data-rule="${index}" aria-label="${escape(def.title)} condition history for ${escape(monitorData.equipment[eq].equipment_id)}" role="img"></canvas></div>`;
+}
+function renderMonitor() {
+  $("rule-grid").innerHTML = monitorData.equipment.map((eq, e) => `<article class="rule-pump"><h3>${escape(eq.equipment_id)}</h3>
+    ${monitorData.rules.map((def, r) => ruleBlock(def, eq.rules[r], eq.latest, e, r)).join("")}</article>`).join("");
+  drawLanes();
+}
+function drawLanes() {
+  if (!monitorData) return;
+  const theme = getComputedStyle(document.documentElement), color = name => theme.getPropertyValue(name).trim();
+  document.querySelectorAll("canvas.lanes").forEach(canvas => {
+    const eq = monitorData.equipment[canvas.dataset.equipment], rule = eq.rules[canvas.dataset.rule], def = monitorData.rules[canvas.dataset.rule];
+    const lanes = [...def.warning.map((cond, k) => ({label: condText(cond), values: rule.conditions[k], color: color("--amber")})),
+      {label: "Warning: all together", values: rule.warning.series, color: color("--red")},
+      {label: "Critical: all together", values: rule.critical.series, color: color("--red")}];
+    const ratio = window.devicePixelRatio || 1, width = canvas.clientWidth, laneHeight = 11, gap = 5, labels = 150;
+    const height = lanes.length * (laneHeight + gap) + 14;
+    canvas.style.height = `${height}px`; canvas.width = width * ratio; canvas.height = height * ratio;
+    const c = canvas.getContext("2d"); c.scale(ratio, ratio);
+    c.font = `10px ${color("--mono")}`;
+    lanes.forEach((lane, row) => {
+      const y = row * (laneHeight + gap), cell = (width - labels) / lane.values.length;
+      c.fillStyle = color("--muted"); c.fillText(lane.label, 0, y + laneHeight - 2);
+      lane.values.forEach((value, k) => {
+        if (value === null) return;
+        c.fillStyle = value ? lane.color : color("--line");
+        c.fillRect(labels + k * cell, y, Math.ceil(cell), laneHeight);
+      });
+    });
+    c.fillStyle = color("--muted");
+    c.fillText(new Date(monitorData.first_bucket_epoch * 1000).toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"}), labels, height - 2);
+    c.fillText("now", width - 22, height - 2);
+  });
+}
+async function refreshMonitor() {
+  clearTimeout(monitorTimer);
+  try {
+    if (!document.hidden || !monitorData) { monitorData = await api(`/api/rules/monitor?minutes=${$("rule-window").value}`); renderMonitor(); drawChart(); }
+  } catch (error) { $("rule-grid").innerHTML = `<div class="empty">${escape(error.message)}</div>`; }
+  finally { monitorTimer = setTimeout(refreshMonitor, 5000); }
+}
+$("rule-window").onchange = refreshMonitor;
+window.addEventListener("resize", drawLanes);
+refreshMonitor();
 
 const counts = new Intl.NumberFormat(), reduceMotion = matchMedia("(prefers-reduced-motion: reduce)");
 const dataFields = Object.keys(signals);
@@ -213,7 +293,7 @@ function renderDataRows(rows, reset) {
 async function refreshData(reset = false) {
   clearTimeout(dataTimer);
   try {
-    if (!document.hidden) {
+    if (!document.hidden || !dataSummary) {
       dataSummary = await api("/api/data/summary");
       const select = $("data-equipment");
       if (!select.options.length) for (const a of dataSummary.equipment) select.add(new Option(a.equipment_id, a.equipment_id));

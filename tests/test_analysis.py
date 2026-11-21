@@ -69,6 +69,10 @@ class AnalysisTests(unittest.TestCase):
         )
         self.assertEqual(response.status_code, 403)
 
+    def test_page_and_static_assets_are_revalidated_so_upgrades_show_immediately(self):
+        for path in ("/", "/static/app.js", "/static/style.css"):
+            self.assertEqual(self.client.get(path).headers["cache-control"], "no-cache", path)
+
     def test_active_critical_alert_is_not_downgraded_or_duplicated(self):
         conn = MagicMock()
         conn.execute.return_value.fetchone.return_value = {"id": uuid.uuid4(), "severity": "critical"}

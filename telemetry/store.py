@@ -5,7 +5,7 @@ import psycopg
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
-from telemetry.rules import RULES, severity, summarize, sustained
+from telemetry.rules import CRITICAL_SECONDS, RULES, WARNING_SECONDS, severity, summarize, sustained
 
 
 LOG = logging.getLogger(__name__)
@@ -96,7 +96,7 @@ def detect_tick():
                     triggering = rule.critical if level == "critical" else rule.warning
                     trigger_evidence = dict(
                         evidence,
-                        required_sustained_seconds=20 if level == "critical" else 30,
+                        required_sustained_seconds=CRITICAL_SECONDS if level == "critical" else WARNING_SECONDS,
                         triggering_conditions=[vars(condition) for condition in triggering],
                     )
                     save_alert(

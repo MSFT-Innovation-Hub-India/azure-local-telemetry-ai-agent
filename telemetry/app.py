@@ -16,7 +16,7 @@ import psycopg
 from psycopg.types.json import Jsonb
 from pydantic import BaseModel, Field
 
-from telemetry import datastore
+from telemetry import datastore, monitor
 from telemetry.knowledge import DependencyError, Knowledge, ROOT, complete, load_models, seed_documents
 from telemetry.rules import FIELDS, summarize
 from telemetry.store import connect, detect_tick
@@ -84,6 +84,8 @@ async def same_origin(request: Request, call_next):
     response = await call_next(request)
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["Referrer-Policy"] = "no-referrer"
+    if request.url.path == "/" or request.url.path.startswith("/static/"):
+        response.headers["Cache-Control"] = "no-cache"
     return response
 
 
@@ -145,6 +147,11 @@ def trends(seconds: int = Query(default=600, ge=60, le=1800)):
                 GROUP BY equipment_id,time_bucket('5 seconds',measured_at)
                 ORDER BY measured_at""", (seconds,),
         ).fetchall()
+
+
+@app.get("/api/rules/monitor")
+def rules_monitor(minutes: int = Query(default=10, ge=1, le=30)):
+    return monitor.monitor(minutes)
 
 
 @app.get("/api/data/summary")

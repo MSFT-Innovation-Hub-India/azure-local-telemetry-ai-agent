@@ -18,7 +18,7 @@
       <span class="brand-name">fieldnote<span class="brand-caption">Equipment observatory</span></span>
     </a>
     <nav class="page-nav" aria-label="Page sections">
-      <a href="#asset-section">Equipment</a><a href="#trends-section">Signals</a><a href="#data-section">Data</a><a href="#incident-section">Incidents</a><a href="#library-section">Procedures</a>
+      <a href="#asset-section">Equipment</a><a href="#trends-section">Signals</a><a href="#rules-section">Rules</a><a href="#data-section">Data</a><a href="#incident-section">Incidents</a><a href="#library-section">Procedures</a>
     </nav>
     <div class="connection"><span id="connection" data-state="connecting">Connecting...</span><small id="updated"></small></div>
   </header>
@@ -49,8 +49,14 @@
       <canvas id="chart" height="250" aria-label="Time series of pump measurements" role="img"></canvas>
       <div class="legend"><span class="pump1">PUMP-001</span><span class="pump2">PUMP-002</span><span class="pump3">PUMP-003</span></div>
     </section>
+    <section id="rules-section" class="rules-panel">
+      <div class="section-title"><div><div class="section-heading"><span class="section-number">03</span><h2>The rule monitor</h2></div><span>Each SOP rule's conditions, evaluated together over time / read-only view of the detector's rules</span></div>
+        <label>Window <select id="rule-window"><option value="5">5 minutes</option><option value="10" selected>10 minutes</option><option value="15">15 minutes</option></select></label></div>
+      <p class="section-description">A rule opens an alert only when <strong>all</strong> of its conditions hold together, without a break, for the sustained time. Amber lanes show one condition violated; red lanes show the conditions violated together. The control pump should stay quiet.</p>
+      <div id="rule-grid" class="rule-grid"><div class="empty">Loading rule history...</div></div>
+    </section>
     <section id="data-section" class="data-panel">
-      <div class="section-title"><div><div class="section-heading"><span class="section-number">03</span><h2>The data store</h2></div><span>What TimescaleDB holds right now / exact row counts / newest rows first</span></div>
+      <div class="section-title"><div><div class="section-heading"><span class="section-number">04</span><h2>The data store</h2></div><span>What TimescaleDB holds right now / exact row counts / newest rows first</span></div>
         <label>Equipment <select id="data-equipment"></select></label></div>
       <div class="meters" aria-live="off">
         <div class="meter"><span>Rows in database</span><strong id="meter-total">-</strong><small id="meter-rate">&nbsp;</small></div>
@@ -67,7 +73,7 @@
     </section>
     <div id="incident-section" class="work-grid">
       <section class="panel incident-panel">
-        <div class="section-title"><div class="section-heading"><span class="section-number">04</span><h2>Incident desk</h2></div><label class="checkbox-label"><input id="show-resolved" type="checkbox"> Include resolved</label></div>
+        <div class="section-title"><div class="section-heading"><span class="section-number">05</span><h2>Incident desk</h2></div><label class="checkbox-label"><input id="show-resolved" type="checkbox"> Include resolved</label></div>
         <p class="section-description">Conditions worth a closer look. Every event keeps its evidence.</p>
         <div id="alerts"></div>
       </section>
@@ -87,7 +93,7 @@
       </section>
     </div>
     <section id="library-section" class="library-section">
-      <div class="section-title"><div class="section-heading"><span class="section-number">05</span><h2>From the field manual</h2></div><span>Versioned originals in PostgreSQL / isolated Qdrant index</span></div>
+      <div class="section-title"><div class="section-heading"><span class="section-number">06</span><h2>From the field manual</h2></div><span>Versioned originals in PostgreSQL / isolated Qdrant index</span></div>
       <div id="documents" class="documents"></div>
     </section>
   </main>
