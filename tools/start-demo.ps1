@@ -33,17 +33,26 @@ $ErrorActionPreference = "Stop"
 $logDir = Join-Path $env:TEMP "telemetry-demo-access"
 New-Item -ItemType Directory -Force -Path $logDir | Out-Null
 $owned = New-Object System.Collections.Generic.List[object]
+$script:proxy = $null
 
-function Set-KubeContext {
-    $names = @(kubectl config get-contexts -o name 2>$null)
-    if ($names -notcontains $Context) { return $false }
-    kubectl config use-context $Context 2>$null | Out-Null
+function Invoke-Quiet([scriptblock]$Command) {
+    # Probing a native command that may fail must not turn its stderr into a terminating error.
+    $previous = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try { & $Command 2>$null | Out-Null } finally { $ErrorActionPreference = $previous }
     return $LASTEXITCODE -eq 0
 }
 
+function Set-KubeContext {
+    $previous = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try { $names = @(kubectl config get-contexts -o name 2>$null) } finally { $ErrorActionPreference = $previous }
+    if ($names -notcontains $Context) { return $false }
+    return Invoke-Quiet { kubectl config use-context $Context }
+}
+
 function Test-Cluster {
-    kubectl --context $Context --request-timeout=10s get namespace telemetry-demo -o name 2>$null | Out-Null
-    return $LASTEXITCODE -eq 0
+    return Invoke-Quiet { kubectl --context $Context --request-timeout=10s get namespace telemetry-demo -o name }
 }
 
 function Test-Port([int]$Port) {
@@ -62,6 +71,28 @@ function Start-Forward($Forward) {
     $Forward.Process = Start-Process kubectl -ArgumentList $kubectlArgs -PassThru -WindowStyle Hidden `
         -RedirectStandardOutput $log -RedirectStandardError ($log + ".err")
     $Forward.Log = $log + ".err"
+    $Forward.Started = Get-Date
+}
+
+function Start-ArcProxy {
+    if (-not (Invoke-Quiet { az account show --query id -o tsv })) { throw "Not signed in to Azure. Run 'az login' first." }
+    Write-Host "Starting Arc proxy for $ClusterName in $ResourceGroup ..."
+    $proxyLog = Join-Path $logDir "proxy.log"
+    $item = [pscustomobject]@{ Process = $null }
+    $item.Process = Start-Process az -ArgumentList @("connectedk8s", "proxy", "--resource-group", $ResourceGroup, "--name", $ClusterName) `
+        -PassThru -WindowStyle Hidden -RedirectStandardOutput $proxyLog -RedirectStandardError ($proxyLog + ".err")
+    $owned.Add($item)
+    $script:proxy = $item
+    $deadline = (Get-Date).AddSeconds($StartupTimeoutSeconds)
+    while ((Get-Date) -lt $deadline) {
+        if ($item.Process.HasExited) {
+            Show-Log $proxyLog; Show-Log ($proxyLog + ".err")
+            throw "The Arc proxy exited before the cluster became reachable."
+        }
+        if ((Set-KubeContext) -and (Test-Cluster)) { Write-Host "Arc proxy is ready."; return }
+        Start-Sleep -Seconds 3
+    }
+    throw "Cluster not reachable through the Arc proxy within $StartupTimeoutSeconds seconds (see $proxyLog)."
 }
 
 function Wait-Forward($Forward) {
@@ -77,7 +108,7 @@ function Wait-Forward($Forward) {
 
 function Stop-Owned {
     foreach ($item in $owned) {
-        if ($item.Process -and -not $item.Process.HasExited) { taskkill /PID $item.Process.Id /T /F 2>$null | Out-Null }
+        if ($item.Process -and -not $item.Process.HasExited) { [void](Invoke-Quiet { taskkill /PID $item.Process.Id /T /F }) }
     }
 }
 
@@ -94,31 +125,12 @@ try {
     if (Test-Cluster) {
         Write-Host "Cluster already reachable through context '$Context'; reusing the existing Arc proxy."
     } else {
-        az account show --query id -o tsv 2>$null | Out-Null
-        if ($LASTEXITCODE -ne 0) { throw "Not signed in to Azure. Run 'az login' first." }
-        Write-Host "Starting Arc proxy for $ClusterName in $ResourceGroup ..."
-        $proxyLog = Join-Path $logDir "proxy.log"
-        $proxy = [pscustomobject]@{ Process = $null }
-        $proxy.Process = Start-Process az -ArgumentList @("connectedk8s", "proxy", "--resource-group", $ResourceGroup, "--name", $ClusterName) `
-            -PassThru -WindowStyle Hidden -RedirectStandardOutput $proxyLog -RedirectStandardError ($proxyLog + ".err")
-        $owned.Add($proxy)
-        $deadline = (Get-Date).AddSeconds($StartupTimeoutSeconds)
-        $ready = $false
-        while ((Get-Date) -lt $deadline) {
-            if ($proxy.Process.HasExited) {
-                Show-Log $proxyLog; Show-Log ($proxyLog + ".err")
-                throw "The Arc proxy exited before the cluster became reachable."
-            }
-            if ((Set-KubeContext) -and (Test-Cluster)) { $ready = $true; break }
-            Start-Sleep -Seconds 3
-        }
-        if (-not $ready) { throw "Cluster not reachable through the Arc proxy within $StartupTimeoutSeconds seconds (see $proxyLog)." }
-        Write-Host "Arc proxy is ready."
+        Start-ArcProxy
     }
 
-    $forwards = @([pscustomobject]@{ Name = "Telemetry"; Namespace = "telemetry-demo"; Service = "telemetry-web"; Port = $TelemetryPort; Process = $null; Log = $null })
+    $forwards = @([pscustomobject]@{ Name = "Telemetry"; Namespace = "telemetry-demo"; Service = "telemetry-web"; Port = $TelemetryPort; Process = $null; Log = $null; Started = $null; Failures = 0 })
     if ($IncludeWarranty) {
-        $forwards += [pscustomobject]@{ Name = "Warranty assistant"; Namespace = "assistant-demo"; Service = "assistant-web"; Port = $WarrantyPort; Process = $null; Log = $null }
+        $forwards += [pscustomobject]@{ Name = "Warranty assistant"; Namespace = "assistant-demo"; Service = "assistant-web"; Port = $WarrantyPort; Process = $null; Log = $null; Started = $null; Failures = 0 }
     }
     foreach ($forward in $forwards) {
         Start-Forward $forward
@@ -131,12 +143,21 @@ try {
 
     while ($true) {
         Start-Sleep -Seconds 5
-        if ($proxy -and $proxy.Process.HasExited) { throw "The Arc proxy exited; re-run this script." }
-        foreach ($forward in $forwards) {
-            if ($forward.Process.HasExited) {
-                Write-Warning "$($forward.Name) port-forward ended; restarting."
-                Start-Forward $forward
+        $ended = @($forwards | Where-Object { $_.Process.HasExited })
+        $proxyEnded = $script:proxy -and $script:proxy.Process.HasExited
+        if (-not ($ended.Count -or $proxyEnded)) { continue }
+        if (-not (Test-Cluster)) {
+            Write-Warning "The cluster is no longer reachable (the Arc proxy stopped); starting a new proxy."
+            Start-ArcProxy
+        }
+        foreach ($forward in $ended) {
+            $forward.Failures = if (((Get-Date) - $forward.Started).TotalSeconds -lt 15) { $forward.Failures + 1 } else { 1 }
+            if ($forward.Failures -ge 5) {
+                Show-Log $forward.Log
+                throw "$($forward.Name) port-forward keeps ending even though the cluster is reachable (see $($forward.Log))."
             }
+            Write-Warning "$($forward.Name) port-forward ended; restarting."
+            Start-Forward $forward
         }
     }
 } finally {

@@ -37,7 +37,11 @@ The script selects the `zines-22325-aks` kubectl context, starts
 `az connectedk8s proxy` for `zines-22325-rg` / `zines-22325-aks` (or reuses an
 already-reachable proxy and leaves it running), starts the port-forward(s), waits
 until each port accepts connections and opens the browser (`-NoBrowser` to skip).
-It restarts a port-forward that exits, for example after an app upgrade. Press
+It restarts a port-forward that exits, for example after an app upgrade. If the
+cluster becomes unreachable (the Arc proxy stopped, which makes every port-forward
+fail at once), it starts a new proxy and then restarts the tunnels; if a tunnel keeps
+failing while the cluster is reachable it stops and prints the log instead of
+looping. Press
 Ctrl+C to stop only the processes it started. Parameters: `-ResourceGroup`,
 `-ClusterName`, `-Context`, `-TelemetryPort`, `-WarrantyPort`. If a local port is
 already in use the script stops rather than killing anything; reuse that tunnel or
