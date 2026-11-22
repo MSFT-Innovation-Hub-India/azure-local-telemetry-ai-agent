@@ -102,6 +102,16 @@ warranty app is one consumer of that platform. **This project is a second
 consumer**, with a different data source (live telemetry plus SOPs) and trigger
 (an operator's request rather than a typed question).
 
+The companion's own overview of that platform (the PDF assistant, the embedding
+service, Qdrant and the Foundry Local Qwen deployments) is shown below. It is
+hosted in the companion repository, so it always matches that project; see its
+[Understand the solution](https://github.com/MSFT-Innovation-Hub-India/azure-local-rag-assistant#understand-the-solution)
+section for the detail.
+
+[![Companion project: PDF assistant and Qwen deployment overview](https://raw.githubusercontent.com/MSFT-Innovation-Hub-India/azure-local-rag-assistant/main/architecture.svg)](https://github.com/MSFT-Innovation-Hub-India/azure-local-rag-assistant#understand-the-solution)
+
+The diagram below adds this project's pieces to that platform.
+
 ```mermaid
 flowchart LR
     subgraph companion["Companion repo: assistant-demo"]
