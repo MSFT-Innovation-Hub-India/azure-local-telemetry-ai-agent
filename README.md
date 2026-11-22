@@ -102,13 +102,17 @@ warranty app is one consumer of that platform. **This project is a second
 consumer**, with a different data source (live telemetry plus SOPs) and trigger
 (an operator's request rather than a typed question).
 
-The companion's own overview of that platform (the PDF assistant, the embedding
-service, Qdrant and the Foundry Local Qwen deployments) is shown below. This is a
-copy of its [architecture diagram](https://github.com/MSFT-Innovation-Hub-India/azure-local-rag-assistant#understand-the-solution)
-([SVG](docs/images/companion-architecture.svg));
-see that repository for the current version and the detail.
+The platform underneath both demos is shown below: the client reaching the cluster
+through Azure Arc, the Azure Local appliance with Foundry Local, Arc agents, Istio
+and certificate management, and the Arc-enabled Kubernetes cluster that hosts the
+workloads. This is a copy of the companion's
+[platform architecture diagram](https://github.com/MSFT-Innovation-Hub-India/azure-local-rag-assistant/blob/main/docs/images/platform-architecture.svg);
+see its [Understand the solution](https://github.com/MSFT-Innovation-Hub-India/azure-local-rag-assistant#understand-the-solution)
+section for the current version and the detail. In this project the "PDF assistant /
+local RAG" box is the shared embedding service and Qdrant, and the telemetry app is
+an additional workload in the same cluster.
 
-![Companion project: PDF assistant and Qwen deployment overview](docs/images/companion-architecture.svg)
+![Azure cloud and on-premises Azure Local: connected platform architecture](docs/images/platform-architecture.svg)
 
 The diagram below adds this project's pieces to that platform.
 
