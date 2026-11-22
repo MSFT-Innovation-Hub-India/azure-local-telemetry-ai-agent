@@ -189,6 +189,42 @@ def load_models():
     return {m["id"]: m for m in entries}
 
 
+STREAMING_RECOMMENDED = frozenset({"qwen2-5-14b-cpu"})  # needs longer than the gateway's 60 s non-streaming limit
+
+
+def finalize(text, usage, finish, source_count):
+    text = text.strip()
+    if finish not in ("stop", "length") or not text:
+        raise ValueError("Incomplete or filtered model response")
+    if any(int(n) < 1 or int(n) > source_count for n in re.findall(r"\[S(\d+)\]", text)):
+        raise ValueError("Unknown source reference")
+    if usage is not None:
+        fields = ("prompt_tokens", "completion_tokens", "total_tokens")
+        if not isinstance(usage, dict) or any(
+            not isinstance(usage.get(k), int) or isinstance(usage[k], bool) or usage[k] < 0 for k in fields
+        ):
+            raise ValueError("Invalid token usage")
+        if usage["total_tokens"] != usage["prompt_tokens"] + usage["completion_tokens"]:
+            raise ValueError("Inconsistent token usage")
+    raw = text
+    if finish == "length":
+        text += "\n\nApplication notice: the model reached its output limit. This explanation is partial; review the rule evidence and sources."
+    return text, usage, raw, finish
+
+
+def parse_response(payload, source_count):
+    try:
+        if not isinstance(payload, dict) or payload.get("error"):
+            raise ValueError("Invalid response or model error")
+        choice = payload["choices"][0]
+        content = choice["message"]["content"]
+        if not isinstance(content, str):
+            raise ValueError("Invalid message content")
+        return finalize(content, payload.get("usage"), choice.get("finish_reason"), source_count)
+    except (ValueError, KeyError, TypeError, AttributeError, IndexError) as exc:
+        raise DependencyError("Model returned an incomplete diagnosis or invalid source/token metadata.") from exc
+
+
 def parse_completion(lines, source_count):
     parts = []
     usage = None
@@ -218,27 +254,14 @@ def parse_completion(lines, source_count):
                 finish = choice.get("finish_reason") or finish
             if event.get("usage") is not None:
                 usage = event["usage"]
-        text = "".join(parts).strip()
-        if not done or finish not in ("stop", "length") or not text:
-            raise ValueError("Incomplete or filtered model stream")
-        if any(int(n) < 1 or int(n) > source_count for n in re.findall(r"\[S(\d+)\]", text)):
-            raise ValueError("Unknown source reference")
-        if usage is not None:
-            fields = ("prompt_tokens", "completion_tokens", "total_tokens")
-            if not isinstance(usage, dict) or any(
-                not isinstance(usage.get(k), int) or isinstance(usage[k], bool) or usage[k] < 0 for k in fields
-            ):
-                raise ValueError("Invalid token usage")
-            if usage["total_tokens"] != usage["prompt_tokens"] + usage["completion_tokens"]:
-                raise ValueError("Inconsistent token usage")
-        if finish == "length":
-            text += "\n\nApplication notice: the model reached its output limit. This explanation is partial; review the rule evidence and sources."
-        return text, usage
+        if not done:
+            raise ValueError("Incomplete model stream")
+        return finalize("".join(parts), usage, finish, source_count)
     except (ValueError, KeyError, TypeError, AttributeError, IndexError) as exc:
         raise DependencyError("Model returned an incomplete diagnosis or invalid source/token metadata.") from exc
 
 
-def complete(model, evidence, sources):
+def complete(model, evidence, sources, stream):
     context = ssl.create_default_context(cafile=os.environ.get("MODEL_CA_FILE", "/run/trust/ca.crt"))
     system = (
         "You are an advisory assistant for FICTIONAL pump-skid telemetry. No equipment control. "
@@ -251,28 +274,46 @@ def complete(model, evidence, sources):
         "Do not repeat the entire numeric observation table or rename any parameters."
     )
     prompt = json.dumps({"evidence": evidence, "sources": sources}, default=str)
+    request = {
+        "model": model["model_id"],
+        "messages": [{"role": "system", "content": system}, {"role": "user", "content": prompt}],
+        "temperature": 0, "max_tokens": 384,
+    }
+    headers = {"api-key": secret("model-key-" + model["id"])}
     started = time.monotonic()
     try:
         with httpx.Client(timeout=300, verify=context, trust_env=False) as http:
-            with http.stream(
-                "POST", model["url"], headers={"api-key": secret("model-key-" + model["id"])},
-                json={"model": model["model_id"], "messages": [
-                    {"role": "system", "content": system}, {"role": "user", "content": prompt},
-                ], "temperature": 0, "max_tokens": 384, "stream": True,
-                    "stream_options": {"include_usage": True}},
-            ) as response:
+            if stream:
+                with http.stream(
+                    "POST", model["url"], headers=headers,
+                    json=dict(request, stream=True, stream_options={"include_usage": True}),
+                ) as response:
+                    response.raise_for_status()
+                    if "text/event-stream" not in response.headers.get("content-type", ""):
+                        raise DependencyError("Model endpoint did not return the required streaming protocol.")
+
+                    def bounded_lines():
+                        for line in response.iter_lines():
+                            if time.monotonic() - started > 300:
+                                raise DependencyError("Model diagnosis exceeded the five-minute time budget.")
+                            yield line
+
+                    text, usage, raw, finish = parse_completion(bounded_lines(), len(sources))
+            else:
+                response = http.post(model["url"], headers=headers, json=request)
                 response.raise_for_status()
-                if "text/event-stream" not in response.headers.get("content-type", ""):
-                    raise DependencyError("Model endpoint did not return the required streaming protocol.")
-
-                def bounded_lines():
-                    for line in response.iter_lines():
-                        if time.monotonic() - started > 300:
-                            raise DependencyError("Model diagnosis exceeded the five-minute time budget.")
-                        yield line
-
-                return parse_completion(bounded_lines(), len(sources))
+                try:
+                    payload = response.json()
+                except ValueError as exc:
+                    raise DependencyError("Model endpoint returned a response that is not JSON.") from exc
+                text, usage, raw, finish = parse_response(payload, len(sources))
+        return text, usage, {"request": dict(request, stream=stream), "response": {"content": raw, "finish_reason": finish}}
     except httpx.HTTPStatusError as exc:
-        raise DependencyError(f"Model endpoint returned HTTP {exc.response.status_code}.") from exc
+        status = exc.response.status_code
+        if status == 504 and not stream:
+            raise DependencyError(
+                "The model gateway cut off the non-streaming response (about 60 seconds). Retry with streaming; token counts are not reported in streaming mode."
+            ) from exc
+        raise DependencyError(f"Model endpoint returned HTTP {status}.") from exc
     except httpx.HTTPError as exc:
-        raise DependencyError(f"Local model stream failed ({type(exc).__name__}).") from exc
+        raise DependencyError(f"Local model request failed ({type(exc).__name__}).") from exc

@@ -84,6 +84,9 @@
         <div id="diagnosis-controls" hidden>
           <label for="model">Inference model</label>
           <select id="model"></select>
+          <label for="stream-mode">Response mode</label>
+          <select id="stream-mode"><option value="false">Non-streaming (reports token counts)</option><option value="true">Streaming (no token counts)</option></select>
+          <small id="stream-note"></small>
           <small>Shared model infrastructure; 14B is slower. Only requested diagnoses invoke a model. No automatic model switching.</small>
           <div class="actions"><button id="diagnose">Generate diagnosis</button><button id="acknowledge" class="secondary">Acknowledge</button></div>
           <label for="ack-note">Acknowledgement note (optional)</label><input id="ack-note" maxlength="500" placeholder="Observation / review note">

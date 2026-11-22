@@ -71,6 +71,7 @@ CREATE TABLE IF NOT EXISTS analysis.diagnoses (
     elapsed_seconds double precision NOT NULL,
     created_at timestamptz NOT NULL DEFAULT now()
 );
+ALTER TABLE analysis.diagnoses ADD COLUMN IF NOT EXISTS exchange jsonb;
 SELECT format('CREATE ROLE telemetry_app LOGIN PASSWORD %L', :'app_password')
 WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'telemetry_app') \gexec
 GRANT CONNECT ON DATABASE telemetry TO telemetry_app;

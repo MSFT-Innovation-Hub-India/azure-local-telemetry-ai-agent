@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 from fastapi.testclient import TestClient
 
 from telemetry.app import app
-from telemetry.knowledge import DependencyError, ROOT, chunks, parse_completion
+from telemetry.knowledge import DependencyError, ROOT, chunks, parse_completion, parse_response
 from telemetry.store import save_alert
 
 
@@ -32,7 +32,7 @@ class AnalysisTests(unittest.TestCase):
             self.assertTrue(any(p["section"] == section for p in passages))
         self.assertTrue(all(len(p["text"]) < 3200 for p in passages))
 
-    def test_chosen_model_is_used_and_diagnosis_keeps_sources_and_evidence(self):
+    def diagnose(self, body):
         identifier = uuid.uuid4()
         now = datetime.now(timezone.utc)
         alert = {
@@ -45,14 +45,34 @@ class AnalysisTests(unittest.TestCase):
         conn = MagicMock()
         conn.execute.return_value.fetchone.side_effect = [alert, {"now": now}]
         conn.execute.return_value.fetchall.return_value = []
-        with patch("telemetry.app.connect") as connect, patch("telemetry.app.complete", return_value=("Advisory [S1]", None)) as model:
+        exchange = {"request": {"model": "qwen", "messages": [], "max_tokens": 384}, "response": {"content": "Advisory [S1]", "finish_reason": "stop"}}
+        with patch("telemetry.app.connect") as connect, patch("telemetry.app.complete", return_value=("Advisory [S1]", None, exchange)) as model:
             connect.return_value.__enter__.return_value = conn
-            response = self.client.post(f"/api/alerts/{identifier}/diagnose", json={"model": "qwen2-5-14b-cpu"})
+            response = self.client.post(f"/api/alerts/{identifier}/diagnose", json=body)
+        return response, model, conn, exchange
+
+    def test_chosen_model_is_used_and_diagnosis_keeps_sources_and_evidence(self):
+        response, model, conn, exchange = self.diagnose({"model": "qwen2-5-14b-cpu"})
         self.assertEqual(response.status_code, 200, response.text)
         self.assertEqual(model.call_args.args[0]["id"], "qwen2-5-14b-cpu")
         self.assertEqual(response.json()["sources"][0]["section"], "BEARING")
         self.assertEqual(response.json()["evidence"]["current_observations"]["sample_count"], 0)
+        self.assertEqual(response.json()["exchange"]["response"]["finish_reason"], "stop")
+        saved = [c for c in conn.execute.call_args_list if "INSERT INTO analysis.diagnoses" in c.args[0]]
+        self.assertEqual(len(saved), 1)
+        self.assertEqual(saved[0].args[1][-1].obj, exchange)
         self.assertFalse(app.state.model_lock.locked())
+
+    def test_response_mode_defaults_to_the_safe_choice_per_model_and_can_be_overridden(self):
+        for body, expected in (
+            ({"model": "qwen2-5-14b-cpu"}, True),
+            ({"model": "qwen2-5-0-5b-cpu"}, False),
+            ({"model": "qwen2-5-0-5b-cpu", "stream": True}, True),
+            ({"model": "qwen2-5-14b-cpu", "stream": False}, False),
+        ):
+            response, model, _, _ = self.diagnose(body)
+            self.assertEqual(response.status_code, 200, response.text)
+            self.assertIs(model.call_args.args[3], expected, body)
 
     def test_unknown_model_and_busy_state_are_explicit(self):
         endpoint = f"/api/alerts/{uuid.uuid4()}/diagnose"
@@ -88,14 +108,34 @@ class AnalysisTests(unittest.TestCase):
             {"choices": [], "usage": {"prompt_tokens": 40, "completion_tokens": 8, "total_tokens": 48}},
         ]
         lines = ["data: " + json.dumps(event) for event in events] + ["data: [DONE]"]
-        text, usage = parse_completion(lines, 1)
+        text, usage, raw, finish = parse_completion(lines, 1)
         self.assertIn("Possible bearing concern [S1].", text)
         self.assertIn("Application notice", text)
+        self.assertEqual((raw, finish), ("Possible bearing concern [S1].", "length"))
         self.assertEqual(usage["total_tokens"], 48)
         with self.assertRaises(DependencyError):
             parse_completion(lines[:-1], 1)
         with self.assertRaises(DependencyError):
             parse_completion(lines, 0)
+
+    def test_non_streaming_response_reports_usage_and_rejects_bad_metadata(self):
+        payload = {
+            "choices": [{"message": {"content": "OK [S1]"}, "finish_reason": "stop"}],
+            "usage": {"prompt_tokens": 36, "completion_tokens": 1, "total_tokens": 37},
+        }
+        text, usage, raw, finish = parse_response(payload, 1)
+        self.assertEqual((text, raw, finish, usage["total_tokens"]), ("OK [S1]", "OK [S1]", "stop", 37))
+        self.assertIsNone(parse_response({k: v for k, v in payload.items() if k != "usage"}, 1)[1])
+        for broken in (
+            dict(payload, usage={"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 5}),
+            dict(payload, choices=[{"message": {"content": ""}, "finish_reason": "stop"}]),
+            dict(payload, choices=[{"message": {"content": "x"}, "finish_reason": "content_filter"}]),
+            {"error": "boom"},
+        ):
+            with self.assertRaises(DependencyError):
+                parse_response(broken, 1)
+        with self.assertRaises(DependencyError):
+            parse_response(payload, 0)
 
 
 if __name__ == "__main__":

@@ -503,7 +503,8 @@ $diagnosis.result
 ```
 
 Repeat with `$Model = "qwen2-5-0-5b-cpu"` and the same request block if you want
-the small-model comparison. Missing usage is null, not zero. Inspect source
+the small-model comparison. Usage is null in streaming mode (the default for 14B),
+which does not return token counts; add `stream = $false` for 0.5B to see them. Missing usage is null, not zero. Inspect source
 passages and factual consistency; HTTP 200 is not an accuracy test.
 The original live requests took about 75 s / 15 s respectively; **14B is
 recommended** because the small model invented measurement relationships.

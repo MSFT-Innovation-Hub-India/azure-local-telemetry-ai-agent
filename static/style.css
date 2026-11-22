@@ -189,6 +189,14 @@ button:disabled { opacity: .55; cursor: not-allowed; }
 .diagnosis details { border-bottom: 1px solid var(--line); }
 .diagnosis summary { cursor: pointer; font-size: 11px; color: var(--copper); padding: 13px 0; line-height: 1.6; }
 .diagnosis details p { font-size: 12px; line-height: 1.8; }
+.diagnosis details.technical { margin-top: 18px; border: 1px solid var(--line); background: #f6f3ea; padding: 0 14px 6px; }
+.diagnosis details.technical > summary { color: var(--muted); font: 10px/1.6 var(--mono); text-transform: uppercase; letter-spacing: .4px; }
+.token-table td.sub, .token-table tr.sub td { color: var(--muted); font-size: 11px; }
+.token-table td:nth-child(3) { white-space: normal; font-family: inherit; color: var(--muted); }
+.diagnosis pre.json { font: 11px/1.6 var(--mono); background: #f0eee4; border: 1px solid var(--line); padding: 12px; max-height: 300px; overflow: auto; margin: 0 0 12px; }
+.json .jk { color: var(--series-two); }
+.json .js { color: var(--copper); }
+.json .jn { color: var(--amber); }
 .source-link { font-size: 11px; line-height: 1.7; overflow-wrap: anywhere; }
 ul { padding-left: 18px; line-height: 1.8; }
 #error, #diagnosis-status:not(:empty) { padding: 14px 16px; background: var(--copper-wash); color: #743822; font-size: 12px; line-height: 1.7; margin: 16px 0; border: 1px solid #d5b9a2; }

@@ -95,12 +95,21 @@ browser tunnels.
    parameters, missing observations and exact SOP revision/section.
 4. Choose **qwen2.5-0.5b** or **qwen2.5-14b** in the diagnostic workspace. The default
    is 0.5B; your choice is remembered only for this app in browser local storage.
+   **Response mode** defaults to non-streaming for 0.5B (reports token counts) and
+   streaming for 14B (avoids the gateway's 60-second cut-off, but returns no token
+   counts); see [Model transport](#model-transport-response-modes-and-token-counts).
 5. Click **Generate diagnosis**. No model is called merely by viewing the dashboard
    or generating an alert. Model calls can take several minutes; rules continue
    running independently. There is no automatic switch to another model.
-6. Review the saved response, selected model, reported tokens, evidence snapshot
-   and expandable source passages. Model text is advisory and may be incorrect;
-   the deterministic rule remains the authority for severity.
+6. Review the saved response, selected model, evidence snapshot and expandable
+   source passages. Model text is advisory and may be incorrect; the deterministic
+   rule remains the authority for severity. Under **Technical details** (collapsed
+   by default, aimed at presenters rather than technicians) are the token
+   breakdown (input, output, total, share of the output limit, and an estimated
+   split of the input between instructions, telemetry evidence and SOP excerpts)
+   and two scrollable panes with the exact request sent to the model and the
+   response received, as formatted JSON. Diagnoses saved before this was added show
+   tokens only. Token counts appear only in non-streaming mode; see the next section.
 7. Optionally acknowledge with a note. Acknowledgement does not resolve an alert.
    Resolution occurs only after the rule's sustained recovery condition. Include
    resolved alerts to review their event history and saved diagnoses.
@@ -108,14 +117,28 @@ browser tunnels.
 The app starts monitoring when deployed; it does not fabricate historical alerts
 from previous simulator cycles. Allow one cycle for live fault/recovery events.
 
-### Model transport and verified results
+### Model transport, response modes and token counts
 
-The backend consumes authenticated, CA-verified OpenAI-compatible streaming
-responses from the shared model endpoints. This avoids the existing model proxy's
-60-second non-streaming response timeout without modifying that proxy or restarting
-model workloads. The browser receives the completed, saved diagnosis, not live token
-deltas. The backend applies a five-minute inference budget and rejects incomplete
-streams, invalid token metadata and references to unknown source identifiers.
+The backend calls the shared model endpoints with authenticated, CA-verified
+OpenAI-compatible requests in one of two **response modes**, selectable in the UI:
+
+| Mode | Token counts | Gateway limit | Default for |
+|---|---|---|---|
+| Non-streaming | Reported by the model (input, output, total) | The model gateway cuts off non-streaming responses after about 60 seconds | qwen2.5-0.5b (about 15 s) |
+| Streaming | **Not returned**: the model server ignores the request for usage in streaming mode | Avoids the 60-second limit, so long answers can finish | qwen2.5-14b (about 75 s) |
+
+This is a known limitation of the shared model service, not of the application. The
+warranty assistant shows token counts because it calls the model without streaming
+and its short answers finish inside the limit. With the same 0.5B model, a test
+request returned counts non-streaming (36 input, 1 output) and none when streaming.
+The app picks the right mode per model; choosing **Non-streaming** for the 14B model
+asks you to confirm, because the gateway might cut the response off (HTTP 504) before
+the model finishes. The 14B model should therefore normally be run in streaming mode,
+without token counts, and the UI says so. Do not estimate counts for streamed
+responses. Neither the proxy nor the model workloads are modified. The browser
+receives the completed, saved diagnosis, not live token deltas. The backend applies a
+five-minute inference budget and rejects incomplete responses, invalid token metadata
+and references to unknown source identifiers.
 
 Single live bearing-alert requests after deployment produced:
 
@@ -129,9 +152,9 @@ These are individual requests, not a benchmark or an accuracy certification.
 diagnostic or operational correctness. The smaller model's answer
 demonstrates why the rule evidence and original SOP must remain authoritative.
 
-Neither endpoint reported token usage for these streamed requests; the UI
-explicitly displays that counts were not reported rather than estimating them.
-When an endpoint reports the output-limit finish reason, the application appends
+The original live requests above were made in streaming mode, which does not
+return token counts. When an endpoint reports the output-limit finish reason, the
+application appends
 a partial-output notice. A provider can still end a response mid-sentence without
 reporting that reason; inspect the answer rather than treating a completed stream
 as proof of a complete explanation.
@@ -240,6 +263,76 @@ credentials or separate services for production tenant isolation.
   pods or move persistent volumes. The seeded document package currently targets
   rule/source revision 1.0; future rule revisions require an explicit release.
 
+## Demo narrative: who does what
+
+Use this when presenting. The data is simulated; say so at the start.
+
+### The one-minute version
+
+> Three pump skids stream readings every two seconds into a time-series database
+> on this Azure Local appliance. Rules written from the company's own procedures
+> watch *combinations* of signals over time, and open, escalate and close alerts
+> automatically. When an engineer wants help, a local small language model
+> explains the situation using the actual SOP text and cites it. Everything,
+> including the AI, runs on the appliance; no cloud AI service is involved.
+
+### Who does what
+
+| Who | Role in the demo | Automatic? |
+|---|---|---|
+| Simulator | Stands in for the plant's sensors and plays a scripted fault cycle | Yes |
+| TimescaleDB | Stores every reading with its timestamp | Yes |
+| Detector (Python rules) | Opens, escalates and closes alerts from SOP-based thresholds; no AI | Yes, every 5 s |
+| Engineer (real life) | Reviews an incident, decides, inspects and fixes the equipment | No, a person |
+| Qwen model | Explains impact, related checks and uncertainty from the evidence and SOP text | No, only when asked; advisory |
+
+The app never controls equipment, sends notifications or creates work orders, and
+the model cannot change an alert's severity, acknowledge it or clear it.
+
+### Why incidents "resolve themselves"
+
+Nobody fixes anything in the demo. The simulator replays a ten-minute cycle
+(healthy, fault ramp, sustained fault, recovery, healthy). When the readings stay
+inside the rule's clear range for 30 seconds, the detector closes the alert.
+Say: **the scripted recovery stands in for someone fixing the problem.** In a real
+plant a technician would correct the cause (for example, re-lubricate a bearing or
+clear a strainer); the readings would return to normal and the same clear rule
+would close the alert. Acknowledging an alert only records that someone has seen it.
+
+### What "The investigation" means
+
+It is the workspace an engineer would open when they choose to look at an
+incident. It does not mean a person has already acted. It shows the evidence that
+triggered the alert, the possible impact, related readings to cross-check, what the
+sensors cannot tell you (calibration, inspection history) and the cited SOP section.
+**Acknowledge** means "I have seen this". **Generate diagnosis** is optional: the
+selected local model explains the situation using that evidence and SOP text, and
+the answer is saved with its sources. A person still decides what to do.
+
+### Talk track
+
+| Step | Show | Say |
+|---|---|---|
+| 1. Setup | Equipment floor, signal chart | "Three simulated pumps on this appliance, readings every two seconds. The dashed lines are the rule thresholds; the line turns red where it crosses one." |
+| 2. Detection, no AI | Rule monitor | "A rule fires only when *all* its conditions hold together for a sustained time, for example bearing temperature and vibration. Amber is one condition, red is all together. Pump 3 is the healthy control and stays quiet." |
+| 3. The data is real | Data store | "These counters are the actual row count in TimescaleDB, and this is the newest raw data. The 7-day retention keeps storage bounded." |
+| 4. A person takes over | Incident desk, then The investigation | "An engineer opens the incident and sees the evidence, the impact, what to cross-check and what the sensors cannot tell them." |
+| 5. Optional AI help | Generate diagnosis (try 14B) | "The local model explains the situation from the evidence and the SOP, with citations. It is advice; the rules decide severity." |
+| 6. Resolution | Include resolved | "Here the fault is scripted, so it recovers. In a plant, a technician would fix the cause, and when readings stay healthy the alert closes. The history and any diagnosis are kept." |
+
+Cycle timing for the walkthrough is in the next section. Open the Investigation
+and run a diagnosis between minutes 5 and 7, while the incidents are critical.
+
+### Be explicit about what this is not
+
+- It does not act autonomously: no equipment control, notifications or maintenance
+  work orders.
+- It is not a safety system, and the readings and SOPs are fictional.
+- The AI is advisory. Deterministic rules set severity; the model has no control
+  over alerts.
+- The 0.5B model can invent relationships between readings. Prefer 14B for the
+  demonstration, and point out that people should verify the explanation.
+
 ## Suggested ten-minute demonstration
 
 The cycle is relative to **simulator process startup**, not opening the browser
@@ -336,9 +429,10 @@ not proof that lost/deleted storage can be recovered.
 | DNS Service exists but dependency requests fail | Check ready CoreDNS endpoints and allowed DNS pod labels. Check both source egress and destination ingress. Do not rewrite shared DNS/CNI configuration blindly. |
 | Model missing or catalog rejected | Both exact deployment IDs and expected URLs must be present, with matching keys and CA. A single-model or three-model catalog is currently unsupported. |
 | TLS failure / HTTP 401 or 403 from a model | Verify trusted Service DNS certificate and copied CA/API key; follow controlled shared-credential rotation. Never add `--insecure` or disable verification. |
-| Model HTTP 504 or malformed/incomplete stream | Confirm the current streaming-capable app image and endpoint protocol, then inspect app and read-only model logs with the service owner. Do not modify/restart the shared model proxy just to hide a timeout. |
+| Model HTTP 504 | A non-streaming request ran past the gateway's ~60-second limit (expected for the 14B model). Retry with streaming; token counts are not reported in that mode. Do not modify/restart the shared model proxy just to hide a timeout. |
+| Malformed/incomplete model response | Confirm the current app image and endpoint protocol, then inspect app and read-only model logs with the service owner. |
 | HTTP 409 during diagnosis | A request is already in progress. Wait for completion; do not launch parallel retries or assume automatic model fallback. |
-| No token counts | Expected if the model stream omitted usage. The UI explicitly reports missing counts; do not estimate or treat null as zero. |
+| No token counts | Expected in streaming mode: the model server does not return usage for streamed responses. Use non-streaming (the default for the 0.5B model) to get counts. The UI states this; do not estimate or treat null as zero. |
 | Answer invents facts, units or parameter relationships | Compare saved evidence and source passages; prefer 14B. Neither a source list nor HTTP 200 proves a grounded answer. Severity is controlled by deterministic rules. |
 | No active alerts | The equipment may be healthy/recovering. Enable Include resolved, check detector freshness and allow a full cycle. The app does not replay every historic simulator cycle into incidents. |
 | Critical incident persists while values improve | Intended hysteresis: severity remains critical until the full clear window, not merely below critical thresholds. Latest evidence can show warning-level recovery. |

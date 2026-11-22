@@ -85,8 +85,10 @@ model-key-qwen2-5-14b-cpu
 Do not paste key values into documentation or command arguments. The deployer
 copies selected values in memory to its own Secret. The CA must validate each
 Service DNS certificate. Models must support authenticated OpenAI-compatible
-chat completions with `stream=true`, SSE deltas, finish reason and `[DONE]`.
-Usage counts are optional.
+chat completions. 14B needs `stream=true` (SSE deltas, finish reason and `[DONE]`)
+because the gateway cuts off non-streaming responses after about 60 seconds; 0.5B
+may use non-streaming JSON. Usage counts are returned only for non-streaming
+responses.
 
 ## 2. Inspect an existing matching environment
 

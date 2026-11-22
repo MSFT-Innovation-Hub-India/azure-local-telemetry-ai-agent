@@ -128,7 +128,7 @@ make the readings plausible, not a validated physical simulation.
 | `analysis.index_status` | Published collection, package digest, passage count and index time |
 | `analysis.alerts` | Incident state, highest severity, evidence, SOP reference and lifecycle times |
 | `analysis.alert_events` | Opened, escalated, acknowledged and resolved history |
-| `analysis.diagnoses` | Historical answer, selected model, evidence, sources, optional usage and elapsed time |
+| `analysis.diagnoses` | Historical answer, selected model, evidence, sources, optional usage, elapsed time and the exact model request/response (`exchange`, null for earlier rows) |
 
 The sample primary key is `(measured_at, event_id)`, with an asset/time index.
 The simulator retries the **same pending event IDs and timestamps**, using
@@ -236,9 +236,9 @@ sequenceDiagram
     App->>App: Build trigger/current evidence and missing checks
     App->>RAG: Embed query; retrieve top four SOP passages
     App->>App: Exact rule-supporting passage + up to two distinct retrieved passages
-    App->>LLM: Authenticated TLS request; temperature 0; streamed output
-    LLM-->>App: SSE deltas, finish reason, optional usage, DONE
-    App->>App: Validate stream/source identifiers/usage metadata
+    App->>LLM: Authenticated TLS request; temperature 0; non-streaming (0.5B) or streaming (14B)
+    LLM-->>App: JSON with usage, or SSE deltas + finish reason + DONE (no usage)
+    App->>App: Validate response/source identifiers/usage metadata
     App->>DB: Save answer, model, sources and evidence snapshot
     App-->>UI: Completed saved diagnosis
 ```
@@ -249,16 +249,25 @@ for short, cited observations/impact/validation/uncertainty without physical
 intervention instructions. This is a prompt constraint, not a reliability guarantee:
 the 0.5B model demonstrably failed to follow it.
 
-The backend consumes SSE to avoid the existing model proxy's 60-second
-non-streaming timeout. It requires the event-stream content type, a supported
-finish reason and `[DONE]`. It rejects out-of-range `[S#]` references and invalid
-reported usage; it does not fact-check the narrative or guarantee citations are
-present. Missing token counts are displayed explicitly. A reported `length`
-finish appends a partial-output notice.
+The backend supports two response modes. **Non-streaming** returns one JSON
+response whose `usage` gives exact input/output/total token counts, but the existing
+model proxy cuts off non-streaming responses after about 60 seconds. **Streaming**
+consumes SSE, which avoids that limit for slow answers, but the model server returns
+no usage in streaming mode (verified: the same model reports usage non-streaming and
+none when streaming, despite requesting it). The default is non-streaming for the
+fast 0.5B model and streaming for 14B (`STREAMING_RECOMMENDED` in `knowledge.py`);
+the operator can override it per request, and the UI asks for confirmation before
+sending 14B non-streaming because the gateway may return HTTP 504. Both paths share
+validation: a supported finish reason (and the event-stream content type and `[DONE]`
+when streaming), out-of-range `[S#]` references and invalid reported usage are
+rejected; the narrative is not fact-checked and citations are not guaranteed.
+Missing token counts are displayed explicitly and never estimated. A reported `length`
+finish appends a partial-output notice. The mode used is recorded in the saved
+request (`exchange.request.stream`).
 
-The client uses a 300-second HTTP timeout and checks elapsed time between stream
-lines. This is not a guaranteed hard wall-clock cancellation of remote inference.
-The browser receives the answer after completion, not incremental tokens.
+The client uses a 300-second HTTP timeout and, when streaming, checks elapsed time
+between stream lines. This is not a guaranteed hard wall-clock cancellation of remote
+inference. The browser receives the answer after completion, not incremental tokens.
 
 Only one diagnosis runs per app process; simultaneous requests return HTTP 409.
 There is no global queue shared with the warranty app. Keep one replica and one

@@ -17,7 +17,9 @@ from psycopg.types.json import Jsonb
 from pydantic import BaseModel, Field
 
 from telemetry import datastore, monitor
-from telemetry.knowledge import DependencyError, Knowledge, ROOT, complete, load_models, seed_documents
+from telemetry.knowledge import (
+    DependencyError, Knowledge, ROOT, STREAMING_RECOMMENDED, complete, load_models, seed_documents,
+)
 from telemetry.rules import FIELDS, summarize
 from telemetry.store import connect, detect_tick
 
@@ -130,7 +132,8 @@ def overview():
         index = conn.execute("SELECT * FROM analysis.index_status WHERE singleton").fetchone()
     return {
         "server_time": now, "equipment": rows, "alerts": alerts, "documents": documents,
-        "models": [{"id": m["id"], "label": m["label"]} for m in app.state.models.values()],
+        "models": [{"id": m["id"], "label": m["label"], "stream_recommended": m["id"] in STREAMING_RECOMMENDED}
+                   for m in app.state.models.values()],
         "detector": {"last_tick": app.state.last_tick, "error": app.state.detector_error},
         "index": {"ready": app.state.collection is not None, "error": app.state.index_error, "details": index},
         "diagnosis_busy": app.state.model_lock.locked(),
@@ -220,6 +223,7 @@ def acknowledge(alert_id: uuid.UUID, request: Acknowledgement):
 
 class DiagnosisRequest(BaseModel):
     model: str = Field(min_length=1, max_length=60)
+    stream: bool | None = None
 
 
 @app.post("/api/alerts/{alert_id}/diagnose")
@@ -227,6 +231,7 @@ def diagnose(alert_id: uuid.UUID, request: DiagnosisRequest):
     model = app.state.models.get(request.model)
     if model is None:
         raise HTTPException(422, "Choose one of the configured models.")
+    stream = request.stream if request.stream is not None else model["id"] in STREAMING_RECOMMENDED
     if app.state.collection is None:
         raise HTTPException(503, app.state.index_error or "SOP index is unavailable")
     if not app.state.model_lock.acquire(blocking=False):
@@ -267,17 +272,18 @@ def diagnose(alert_id: uuid.UUID, request: DiagnosisRequest):
                 break
         sources = [dict(p, citation=f"S{i}") for i, p in enumerate(sources, 1)]
         started = time.monotonic()
-        text, usage = complete(model, evidence, sources)
+        text, usage, exchange = complete(model, evidence, sources, stream)
         elapsed = round(time.monotonic() - started, 2)
         identifier = uuid.uuid4()
         with connect() as conn:
             conn.execute(
-                """INSERT INTO analysis.diagnoses (id,alert_id,model_id,result,evidence,sources,usage,elapsed_seconds)
-                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s)""",
-                (identifier, alert_id, model["id"], text, Jsonb(evidence), Jsonb(sources), Jsonb(usage) if usage else None, elapsed),
+                """INSERT INTO analysis.diagnoses (id,alert_id,model_id,result,evidence,sources,usage,elapsed_seconds,exchange)
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                (identifier, alert_id, model["id"], text, Jsonb(evidence), Jsonb(sources), Jsonb(usage) if usage else None,
+                 elapsed, Jsonb(exchange)),
             )
         return {"id": identifier, "model_id": model["id"], "result": text, "evidence": evidence,
-                "sources": sources, "usage": usage, "elapsed_seconds": elapsed}
+                "sources": sources, "usage": usage, "elapsed_seconds": elapsed, "exchange": exchange}
     except (DependencyError, httpx.HTTPError) as exc:
         LOG.exception("SOP-grounded diagnosis failed")
         raise HTTPException(503, "Diagnosis failed: " + str(exc)) from exc

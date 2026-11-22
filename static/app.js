@@ -7,7 +7,7 @@ const signals = {
   motor_current_a: ["Motor current", "A"], motor_temperature_c: ["Motor temperature", "C"],
   speed_rpm: ["Speed", "rpm"], ambient_temperature_c: ["Ambient temperature", "C"]
 };
-let overview = null, trendRows = [], selected = null, busy = false, details = null, monitorData = null;
+let overview = null, trendRows = [], selected = null, busy = false, details = null, monitorData = null, diagnosisSignature = null;
 const escape = text => String(text ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const date = value => value ? new Date(value).toLocaleString() : "-";
 const num = value => typeof value === "number" ? value.toFixed(2) : "-";
@@ -21,6 +21,15 @@ async function api(url, options = {}) {
   return body;
 }
 function showError(message) { $("error").textContent = message; $("error").hidden = !message; }
+function selectedModel() { return overview?.models.find(m => m.id === $("model").value); }
+function updateStreamNote() {
+  const streaming = $("stream-mode").value === "true", slow = selectedModel()?.stream_recommended;
+  $("stream-note").textContent = streaming
+    ? "Streaming avoids the gateway's 60-second cut-off, but the model will not return token counts."
+    : slow ? "Non-streaming returns token counts, but the gateway may cut off the response (about 60 seconds) before this slower model finishes."
+      : "Non-streaming returns token counts and suits this faster model.";
+}
+function applyModeDefault() { $("stream-mode").value = String(!!selectedModel()?.stream_recommended); updateStreamNote(); }
 function renderOverview() {
   const active = overview.alerts.filter(a => !a.resolved_at);
   $("asset-count").textContent = overview.equipment.length;
@@ -46,6 +55,7 @@ function renderOverview() {
     for (const model of overview.models) $("model").add(new Option(model.label, model.id));
     const saved = localStorage.getItem("telemetry-model");
     if (overview.models.some(m => m.id === saved)) $("model").value = saved;
+    applyModeDefault();
   }
   $("documents").innerHTML = overview.documents.map((doc, index) => `<article class="document">
     <div class="document-meta"><span class="document-number" aria-hidden="true">${String(index + 1).padStart(2, "0")}</span><span class="document-revision">REV ${escape(doc.revision)} / SOP</span></div>
@@ -86,12 +96,56 @@ function renderDetail() {
   $("diagnosis-controls").hidden = false;
   $("acknowledge").disabled = !!a.resolved_at || !!a.acknowledged_at;
   $("diagnose").disabled = busy || !overview.index.ready;
+  const signature = `${a.id}:${details.diagnoses.map(d => d.id).join(",")}`;
+  if (signature === diagnosisSignature) return;
+  diagnosisSignature = signature;
   $("diagnoses").innerHTML = details.diagnoses.map(d => `<article class="diagnosis">
-    <h3>Advisory diagnosis</h3><small>${escape(d.model_id)} &middot; ${escape(date(d.created_at))} &middot; ${num(d.elapsed_seconds)}s
-    <br>${d.usage ? `${d.usage.prompt_tokens} input / ${d.usage.completion_tokens} output / ${d.usage.total_tokens} total tokens` : "Model did not report token counts"}</small>
+    <h3>Advisory diagnosis</h3><small>${escape(d.model_id)} &middot; ${escape(date(d.created_at))} &middot; ${num(d.elapsed_seconds)}s</small>
     <pre>${escape(d.result)}</pre><small>Historical evidence snapshot. Verify the interpretation; the model does not control alert severity.</small>
     ${d.sources.map(s => `<details><summary>[${escape(s.citation)}] ${escape(s.document_id)} rev ${escape(s.revision)} / ${escape(s.section)}</summary>
-    <p>${escape(s.text)}</p><a class="source-link" target="_blank" rel="noopener" href="${sourceUrl(s.document_id,s.revision)}">Open source revision</a></details>`).join("")}</article>`).join("");
+    <p>${escape(s.text)}</p><a class="source-link" target="_blank" rel="noopener" href="${sourceUrl(s.document_id,s.revision)}">Open source revision</a></details>`).join("")}
+    ${technicalDetails(d)}</article>`).join("");
+}
+function jsonHtml(value) {
+  const text = JSON.stringify(value, null, 2), token = /("(?:\\.|[^"\\])*")(\s*:)?|(-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?|true|false|null)/g;
+  let out = "", last = 0, match;
+  while ((match = token.exec(text))) {
+    out += escape(text.slice(last, match.index));
+    out += `<span class="${match[1] ? (match[2] ? "jk" : "js") : "jn"}">${escape(match[1] ?? match[3])}</span>${escape(match[2] ?? "")}`;
+    last = token.lastIndex;
+  }
+  return out + escape(text.slice(last));
+}
+function readable(request) {
+  const messages = request.messages.map(m => {
+    try { return {...m, content: JSON.parse(m.content)}; } catch { return m; }
+  });
+  return {...request, messages};
+}
+function tokenRows(d) {
+  const u = d.usage, request = d.exchange?.request;
+  if (!u) return `<tr><td colspan="3">${d.exchange?.request.stream ? "The model does not return token counts in streaming mode. Use non-streaming mode (suited to the 0.5B model) to see them." : "The model did not report token counts."}</td></tr>`;
+  const limit = request?.max_tokens, rate = d.elapsed_seconds > 0 ? u.completion_tokens / d.elapsed_seconds : 0;
+  let split = "";
+  if (request) {
+    const [system, prompt] = request.messages.map(m => m.content.length);
+    const evidence = JSON.stringify(d.evidence).length, sources = JSON.stringify(d.sources).length;
+    const parts = [["Instructions and structure", system + Math.max(0, prompt - evidence - sources)], ["Telemetry evidence", evidence], ["SOP excerpts", sources]];
+    const chars = parts.reduce((sum, p) => sum + p[1], 0) || 1;
+    split = parts.map(([label, n]) => `<tr class="sub"><td>${label}</td><td>&asymp; ${counts.format(Math.round(u.prompt_tokens * n / chars))}</td><td>${(n / chars * 100).toFixed(0)}% of input (estimated from characters)</td></tr>`).join("");
+  }
+  return `<tr><td>Input (prompt)</td><td>${counts.format(u.prompt_tokens)}</td><td>Instructions, evidence and SOP excerpts sent to the model</td></tr>${split}
+    <tr><td>Output (completion)</td><td>${counts.format(u.completion_tokens)}</td><td>${limit ? `${(u.completion_tokens / limit * 100).toFixed(0)}% of the ${limit}-token output limit` : ""}</td></tr>
+    <tr><td>Total</td><td>${counts.format(u.total_tokens)}</td><td>${rate ? `about ${rate.toFixed(1)} output tokens/s over ${num(d.elapsed_seconds)} s, including prompt processing` : ""}</td></tr>`;
+}
+function technicalDetails(d) {
+  const x = d.exchange;
+  const panes = x ? `<details><summary>Request sent to the model</summary><pre class="json" tabindex="0">${jsonHtml(readable(x.request))}</pre></details>
+    <details><summary>Response received from the model</summary><pre class="json" tabindex="0">${jsonHtml({...x.response, usage: d.usage})}</pre></details>`
+    : '<p class="facts">The exact request and response were not recorded for diagnoses created before this was added.</p>';
+  return `<details class="technical"><summary>Technical details: tokens, model request and response</summary>
+    ${x ? `<p class="facts">Response mode: ${x.request.stream ? "streaming" : "non-streaming"}</p>` : ""}
+    <div class="evidence-scroll"><table class="evidence-table token-table"><thead><tr><th>Tokens</th><th>Count</th><th>Notes</th></tr></thead><tbody>${tokenRows(d)}</tbody></table></div>${panes}</details>`;
 }
 function drawChart() {
   const canvas = $("chart"), ratio = window.devicePixelRatio || 1, width = canvas.clientWidth, height = 250;
@@ -151,7 +205,7 @@ $("diagnose").onclick = async () => {
   const id=selected;busy=true;$("diagnose").disabled=true;
   $("diagnosis-status").textContent=`Running ${$("model").selectedOptions[0].text}. CPU inference may take several minutes; alerts continue independently.`;
   try {
-    await api(`/api/alerts/${id}/diagnose`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:$("model").value})});
+    await api(`/api/alerts/${id}/diagnose`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:$("model").value,stream:$("stream-mode").value==="true"})});
     $("diagnosis-status").textContent="Diagnosis saved with its model, evidence and SOP sources.";
     if(selected===id)await selectAlert(id);
   } catch(error){$("diagnosis-status").textContent=error.message;}
@@ -164,7 +218,13 @@ $("acknowledge").onclick = async () => {
     $("ack-note").value="";await selectAlert(selected);
   }catch(error){$("diagnosis-status").textContent=error.message;}
 };
-$("model").onchange=()=>localStorage.setItem("telemetry-model",$("model").value);
+$("model").onchange=()=>{localStorage.setItem("telemetry-model",$("model").value);applyModeDefault();};
+$("stream-mode").onchange=()=>{
+  if($("stream-mode").value==="false"&&selectedModel()?.stream_recommended&&
+    !confirm("The model gateway might cut off the response. Non-streaming requests are limited to about 60 seconds, and this model usually needs longer (the 14B model took about 75 seconds). Proceed with non-streaming?"))
+    $("stream-mode").value="true";
+  updateStreamNote();
+};
 $("show-resolved").onchange=()=>overview&&renderAlerts();
 for(const [field,[label,unit]] of Object.entries(signals))$("parameter").add(new Option(`${label} (${unit})`,field));
 $("parameter").onchange=drawChart;

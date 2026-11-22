@@ -17,7 +17,7 @@ that write to Kubernetes see [deployment](DEPLOYMENT.md).
 | [telemetry/store.py](../telemetry/store.py) | Connections, detector transaction, incident persistence and resolution |
 | [telemetry/datastore.py](../telemetry/datastore.py) | Read-only data-store panel queries: row counts, first/latest sample, storage size, newest rows |
 | [telemetry/monitor.py](../telemetry/monitor.py) | Read-only rule monitor: per-condition and combined violation history (TimescaleDB `time_bucket` + `bool_and`), current state and chart thresholds, all derived from `rules.py` |
-| [telemetry/knowledge.py](../telemetry/knowledge.py) | Original SOP seeding, chunking, vectors, retrieval, model allowlist and streamed completions |
+| [telemetry/knowledge.py](../telemetry/knowledge.py) | Original SOP seeding, chunking, vectors, retrieval, model allowlist and streaming/non-streaming completions |
 | [telemetry/app.py](../telemetry/app.py) | FastAPI lifecycle, independent threads, routes, acknowledgement and diagnosis orchestration |
 | [static/index.html](../static/index.html) | Independent dashboard structure and controls |
 | [static/app.js](../static/app.js) | API access, polling, charts, model selection, alert/evidence/history rendering |
@@ -83,10 +83,13 @@ the final guard against duplicate active incidents.
 - `Knowledge.retrieve()` refuses non-telemetry collection names and queries the
   current collection using Qdrant's REST API.
 - `load_models()` restricts the allowed deployment IDs and Service URLs.
-- `parse_completion()` assembles SSE deltas, requires valid completion markers,
-  checks supplied source IDs/usage and labels reported output truncation.
+- `parse_completion()` assembles SSE deltas and `parse_response()` reads a
+  non-streaming JSON response; both share `finalize()`, which requires a supported
+  finish reason, checks supplied source IDs/usage and labels reported output truncation.
 - `complete()` applies CA verification, API-key auth, the bounded evidence prompt,
-  streaming, temperature 0 and a 384-token output request.
+  temperature 0 and a 384-token output request, in streaming or non-streaming mode.
+  `STREAMING_RECOMMENDED` lists models that need streaming (14B) to avoid the
+  gateway's 60-second non-streaming limit; streaming returns no token counts.
 
 Validation of a source identifier is not validation of the sentence containing it.
 Prompt instructions and `temperature=0` do not make a model deterministic across
@@ -155,10 +158,15 @@ These are lab interfaces, not authenticated production API endpoints.
 | GET `/api/documents/{id}?revision=1.0` | Original Markdown text; 404 if unavailable |
 | GET `/api/alerts/{uuid}` | Alert, complete event history and latest 20 saved diagnoses |
 | POST `/api/alerts/{uuid}/acknowledge` | JSON `{"note":"..."}`, maximum 500 characters |
-| POST `/api/alerts/{uuid}/diagnose` | JSON `{"model":"qwen2-5-14b-cpu"}`; no implicit model fallback |
+| POST `/api/alerts/{uuid}/diagnose` | JSON `{"model":"qwen2-5-14b-cpu","stream":true}`; `stream` is optional and defaults to streaming for 14B and non-streaming for 0.5B (non-streaming reports token counts but the gateway may cut 14B off after ~60 s); no implicit model fallback |
 
 A successful diagnosis returns `id`, `model_id`, `result`, `evidence`, `sources`,
-`usage` (object or null) and `elapsed_seconds`. Model IDs exposed here are the
+`usage` (object or null), `elapsed_seconds` and `exchange`: the request body sent
+to the model (resolved model name, system and user messages, temperature, output
+limit; never the API key) and the response (`content` without the application's
+truncation notice, `finish_reason`). `exchange` is stored in the nullable
+`analysis.diagnoses.exchange` column, added idempotently by `db/002-analysis.sql`
+when the app is deployed; earlier diagnoses have `null`. Model IDs exposed here are the
 deployment-selection IDs, not necessarily the inference API's resolved model name.
 Acknowledgement returns `{"status":"acknowledged"}`; repeating it adds no second
 acknowledgement event. A resolved alert cannot be acknowledged, but can receive a
