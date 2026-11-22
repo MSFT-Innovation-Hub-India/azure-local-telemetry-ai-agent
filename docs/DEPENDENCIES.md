@@ -188,7 +188,8 @@ the [Azure Local Foundry Local lab](https://docs.almr.adaptivecloudlab.com/eng-2
 and its preceding setup pages.
 
 The lab reference is
-[Azure-Local-Samples-101](https://github.com/MSFT-Innovation-Hub-India/Azure-Local-Samples-101).
+[azure-local-rag-assistant](https://github.com/MSFT-Innovation-Hub-India/azure-local-rag-assistant)
+(previously linked here as `Azure-Local-Samples-101`).
 Do not assume it contains this custom telemetry solution or every enhancement in
 the local companion project.
 

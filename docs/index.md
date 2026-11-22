@@ -133,8 +133,10 @@ or equipment control. Review the documented boundaries before adapting it.
 
 ## Related Azure Local sample
 
-The [Azure Local Samples 101 companion repository](https://github.com/MSFT-Innovation-Hub-India/Azure-Local-Samples-101)
-provides related lab context. Follow this project's prerequisite guide for the
-specific shared-service contracts.
+The [azure-local-rag-assistant companion repository](https://github.com/MSFT-Innovation-Hub-India/azure-local-rag-assistant)
+provides the warranty PDF assistant and the shared Qdrant, embedding and model
+services this project reuses (see the
+[README](https://github.com/MSFT-Innovation-Hub-India/azure-local-telemetry-ai-agent#companion-project-the-warranty-pdf-assistant)).
+Follow this project's prerequisite guide for the specific shared-service contracts.
 
 Published by [Microsoft Innovation Hub India](https://github.com/MSFT-Innovation-Hub-India).

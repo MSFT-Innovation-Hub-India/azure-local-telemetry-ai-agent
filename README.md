@@ -67,6 +67,47 @@ your approved ACR. Review the [upstream instructions](https://github.com/timesca
 and [license](https://github.com/timescale/timescaledb/blob/main/LICENSE) before
 redistribution or production use.
 
+## Companion project: the warranty PDF assistant
+
+The second demonstration, and the shared AI services this project builds on, come
+from a separate repository:
+**[azure-local-rag-assistant](https://github.com/MSFT-Innovation-Hub-India/azure-local-rag-assistant)**
+(previously linked here as `Azure-Local-Samples-101`). It is a React/FastAPI PDF
+assistant with a local embedding service, a Qdrant vector database and a selectable
+Qwen model, deployed to the same cluster in the `assistant-demo` namespace and
+opened at http://127.0.0.1:8080. Its **Contoso Field Service** scenario answers
+questions about warranty policy, India/EMEA/APAC regional addenda and goodwill
+approval limits from indexed PDFs, and cites the passages it used. Further
+scenarios (operations, manufacturing, retail) are packaged as content only: a
+`scenario.json`, a system prompt and PDFs.
+
+### What this project reuses from it
+
+This project does **not** use the assistant's application, UI, scenarios, PDFs or
+prompts. It reuses the services the assistant deployed:
+
+| Shared piece | Provided by the companion repository | How the telemetry app uses it |
+|---|---|---|
+| Qdrant vector database (`qdrant`, port 6333, API-key auth) | Stores the assistant's PDF-passage collections | Creates its own isolated, content-addressed collection `telemetry-sops-<hash>` for the 16 SOP sections and queries only that prefix; warranty collections are never read or written |
+| Embedding service (`embeddings`, `POST /embed`, MiniLM `all-MiniLM-L6-v2`, 384 dimensions) | Turns PDF text into vectors | Embeds the SOP sections at startup and the alert text at diagnosis time; rejects a response whose model, revision or dimensions differ |
+| Model catalog and credentials (`assistant-models` ConfigMap, `assistant-credentials` Secret) | Lists the Qwen models and holds the Qdrant and model keys | The deployer copies only the selected keys, the model list and the model CA into this project's own `telemetry-demo` Secret and ConfigMaps; the source objects are not modified |
+| Qwen2.5 0.5B and 14B models (Foundry Local) | Its `deploy/qwen2.5-*.yaml` manifests create the two model deployments in the fresh-lab path | Calls the same endpoints with the same keys and CA, only when a diagnosis is requested |
+| `assistant-demo` namespace and network | Isolates the assistant's pods | One additional NetworkPolicy ([deploy/shared-access.yaml](deploy/shared-access.yaml)) lets only `telemetry-web` reach Qdrant and the embeddings service |
+
+The two applications share infrastructure, not a UI, conversation or deployment, so
+using both at once can contend for embedding and model capacity. There is no global
+queue; the telemetry app allows one diagnosis at a time. The assistant calls the model
+without streaming and shows token counts; the telemetry app streams for the 14B model
+and cannot show them (see
+[model transport and token counts](docs/ANALYSIS.md#model-transport-response-modes-and-token-counts)).
+
+To reuse an existing assistant stack, follow the
+[prerequisite contracts](docs/DEPENDENCIES.md#1-what-must-already-exist). To build the
+shared stack from scratch, use the companion repository's own runbook and the
+[fresh-lab path](docs/DEPENDENCIES.md#5-fresh-lab-builddeploy-the-companion-shared-stack).
+For what each of its pods and containers does, see
+[pods and containers on the cluster](docs/ARCHITECTURE.md#pods-and-containers-on-the-cluster).
+
 ## Current demonstration
 
 | Application | Local browser URL |
