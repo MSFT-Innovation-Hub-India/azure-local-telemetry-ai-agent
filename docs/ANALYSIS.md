@@ -47,7 +47,8 @@ Ctrl+C to stop only the processes it started. Parameters: `-ResourceGroup`,
 already in use the script stops rather than killing anything; reuse that tunnel or
 pass another port. Logs: `%TEMP%\telemetry-demo-access`.
 
-The equivalent manual commands, each in its own terminal:
+The equivalent manual commands, each in its own terminal (the Arc proxy first; the
+tunnels can be reopened later without restarting it):
 
 ```powershell
 az connectedk8s proxy --resource-group zines-22325-rg --name zines-22325-aks
@@ -56,22 +57,8 @@ kubectl --context zines-22325-aks -n telemetry-demo port-forward svc/telemetry-w
 kubectl --context zines-22325-aks -n assistant-demo port-forward svc/assistant-web --address 127.0.0.1 8080:80
 ```
 
-For another environment, use the `$Context` form below.
-
-If the laptop tunnels need reopening, keep these in separate terminals while the
-existing Arc proxy is active:
-
-```powershell
-$Context = "<target-kubectl-context>"
-kubectl --context $Context -n assistant-demo port-forward svc/assistant-web --address 127.0.0.1 8080:80
-```
-
-In the other terminal, set the context there too:
-
-```powershell
-$Context = "<target-kubectl-context>"
-kubectl --context $Context -n telemetry-demo port-forward svc/telemetry-web --address 127.0.0.1 8090:80
-```
+For another environment, substitute its resource group, cluster and context; the
+parameterized versions are in [the deployment guide](DEPLOYMENT.md#8-open-the-independent-applications).
 
 Port-forwarding is development access, not an appliance ingress or a disconnected
 transport guarantee. Both apps and the simulator continue running without these

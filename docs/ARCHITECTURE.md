@@ -79,6 +79,126 @@ Registry sign-in uses an isolated Azure CLI profile; Kubernetes writes use an
 explicit context. The deployment scripts never switch the operator's ordinary
 Azure CLI subscription.
 
+### Pods and containers on the cluster
+
+`kubectl get pods -A` shows a READY column such as `2/2` or `3/3`. A pod can run
+several containers that share one network address and its volumes: usually a main
+container plus helpers (**sidecars**). READY counts the pod's regular containers
+**and** any *native sidecars*: init containers marked to keep running, which
+Kubernetes counts but which do not appear under `spec.containers`. An ordinary init
+container runs once at startup and exits, so it is not counted. All three pods owned
+by this solution are `1/1`: no sidecars were added.
+
+Show the READY count and status of every pod:
+
+```powershell
+kubectl get pods -A
+```
+
+One row per container with its ready flag and image (PowerShell-friendly; the usual
+`-o jsonpath` quoting fails in Windows PowerShell). Change the `-like` filter, or
+remove the `Where-Object`, for other pods:
+
+```powershell
+kubectl get pods -A -o json | ConvertFrom-Json | ForEach-Object { $_.items } |
+  Where-Object { $_.metadata.name -like "qwen2-5-0-5b*" } | ForEach-Object {
+    $p = $_
+    foreach ($s in @($p.status.initContainerStatuses)) { [pscustomobject]@{Pod=$p.metadata.name; Kind="init/sidecar"; Container=$s.name; Ready=$s.ready; Image=($s.image -split '/')[-1]} }
+    foreach ($s in @($p.status.containerStatuses))     { [pscustomobject]@{Pod=$p.metadata.name; Kind="main";         Container=$s.name; Ready=$s.ready; Image=($s.image -split '/')[-1]} }
+  } | Format-Table -AutoSize
+```
+
+Details, logs and a shell for a specific container:
+
+```powershell
+kubectl -n <namespace> describe pod <pod>                      # Init Containers: / Containers: sections
+kubectl -n <namespace> logs <pod> -c <container> --tail=20     # -c selects the container (init containers too)
+kubectl -n <namespace> exec -it <pod> -c <container> -- sh     # only if the image contains a shell
+```
+
+The tables below were observed on the demonstration cluster on 22 November 2026.
+Their container names come from this command, which lists, for every pod, the
+regular containers, the native sidecars (they count in READY) and the one-off
+startup init containers (they do not):
+
+```powershell
+kubectl get pods -A -o json | ConvertFrom-Json | ForEach-Object { $_.items } | ForEach-Object {
+    $init = @($_.spec.initContainers)
+    [pscustomobject]@{
+        Namespace      = $_.metadata.namespace
+        Pod            = $_.metadata.name
+        Containers     = ($_.spec.containers | ForEach-Object { $_.name }) -join ", "
+        NativeSidecars = ($init | Where-Object { $_.restartPolicy } | ForEach-Object { $_.name }) -join ", "
+        StartupInit    = ($init | Where-Object { $_ -and -not $_.restartPolicy } | ForEach-Object { $_.name }) -join ", "
+    }
+} | Sort-Object Namespace, Pod | Format-Table -AutoSize -Wrap | Out-String -Width 200
+```
+
+For example, the output for the 0.5B model pod is `Containers: inference, nginx-sidecar`,
+`NativeSidecars: otel-sidecar` and `StartupInit: model-store-pull`, which is why it
+shows `3/3`. Add `| Where-Object { $_.Namespace -eq "foundry-local-operator" }`
+before `Sort-Object` to limit the output to one namespace.
+
+"Role" is verified from this repository's manifests, the warranty assistant's
+manifest or container logs unless marked *(inferred)*, which means it comes from the
+container name and standard practice and the container's configuration was not
+inspected. Image versions change with platform updates; names are the stable part.
+
+#### Telemetry demonstration (`telemetry-demo`, owned by this solution)
+
+| Pod (READY) | Container | What the name means | Role in the demonstration |
+|---|---|---|---|
+| `timescaledb-0` (1/1) | `postgres` | The PostgreSQL server process; the image is PostgreSQL 17 with the TimescaleDB extension | Stores readings in the `telemetry.samples` hypertable on the 20 GiB volume, plus alerts, SOP originals and diagnoses |
+| `pump-simulator-*` (1/1) | `simulator` | Runs `python -m telemetry.simulator` | Writes correlated readings for three pumps about every two seconds through the insert-only `telemetry_writer` role |
+| `telemetry-web-*` (1/1) | `app` | Runs `uvicorn telemetry.app:app` from the same image as the simulator | Serves the dashboard and API, runs the five-second rule detector, and calls the embeddings service, Qdrant and a Qwen model when a diagnosis is requested |
+
+#### Warranty PDF assistant (`assistant-demo`, separate application, shared services)
+
+The telemetry application reuses this namespace's `embeddings` and `qdrant`.
+
+| Pod (READY) | Container | What the name means | Role |
+|---|---|---|---|
+| `assistant-web-*` (1/1) | `app` | The assistant's FastAPI backend and React UI | Takes a question, retrieves passages from Qdrant and asks a Qwen model for a document-grounded answer |
+| `embeddings-*` (1/1) | `embeddings` | A text-embedding service (MiniLM) | Turns text into vectors; used by the assistant and by the telemetry app's SOP search |
+| `qdrant-0` (1/1) | `qdrant` | The Qdrant vector database | Stores and searches vectors: the PDF passages and the isolated `telemetry-sops-*` collection |
+| `documents-*` (1/1) | `documents` | Holds the PDF volume | Runs the assistant image with a long `sleep` so the 2 GiB `pdf-documents` volume is mounted at `/documents`, where files can be copied in |
+| `pdf-index-*` (0/1 `Completed`) | `indexer` | One-off indexing Job | Read the PDFs and loaded them into Qdrant, then exited; the finished pods are leftovers and are harmless |
+
+#### Foundry Local model platform (`foundry-local-operator`, shared, not owned by either demonstration)
+
+| Pod (READY) | Container | Kind | What the name means | Role |
+|---|---|---|---|---|
+| `qwen2-5-0-5b-cpu-*`, `qwen2-5-14b-cpu-*` (3/3) | `inference` | main | The model server (`generative-py-cpu` image) | Runs the Qwen2.5 0.5B or 14B model on CPU |
+| | `nginx-sidecar` | main | A stock `nginx` image beside the model server | Receives the HTTPS requests on the model's port and passes them to the model server. Its access log shows `POST /v1/chat/completions` with `ssl_protocol=TLSv1.3`, so it terminates TLS. Whether it also checks the API key was not inspected *(inferred)* |
+| | `otel-sidecar` | native sidecar | OpenTelemetry collector (`opentelemetry-collector-contrib`) | Forwards the pod's metrics and traces to the platform's collector *(inferred)* |
+| | `model-store-pull` | init (exits) | Model-store retriever | Downloads the model files from the platform's model store when the pod starts, which is why a model pod can take time to become ready *(inferred)* |
+| `inference-operator-*` (3/3) | `operator` | main | The Kubernetes operator | Creates and manages the model deployments *(inferred)* |
+| | `nginx-sidecar`, `otel-sidecar` | main, native sidecar | As above | As above |
+| `inference-operator-model-store-*` (3/3) | `registry` | main | A container registry (`registry` image) | Stores the model files |
+| | `model-store-auth` | main | Authentication helper | Controls access to the model store *(inferred)* |
+| | `nginx-sidecar` | main | As above | Front end for the registry *(inferred)* |
+| `inference-internal-gateway-istio-*` (1/1) | `istio-proxy` | main | The Istio (Envoy) proxy | The platform's internal inference gateway, managed by `istiod` in `istio-system` |
+| `telemetry-collector-*` (4/4) | `otel-collector` | main | OpenTelemetry collector | Receives telemetry from the platform's pods |
+| | `msi-adapter`, `mdsd`, `mdm` | native sidecars | Managed-identity adapter and two Microsoft monitoring agents | Supply an Azure identity and forward the collected telemetry to Azure *(inferred)* |
+| `inference-operator-catalog-sync-*` (0/1 `Completed`) | (CronJob pod) | Job | Catalog synchronisation | A CronJob (`56 0/6 * * *`) refreshes the model catalog every six hours; each run leaves a finished pod |
+
+#### Cluster platform (not part of either demonstration)
+
+| Namespace | Pod (READY) | Containers | Role |
+|---|---|---|---|
+| `azure-arc` | `clusterconnect-agent` (3/3) | `clusterconnect-agent`, `clusterconnectservice-operator`, `fluent-bit` | The Arc cluster-connect path used by `az connectedk8s proxy` *(inferred)* |
+| | `kube-aad-proxy` (2/2), `guard` (3/3) | `kube-aad-proxy`; `guard`, `msi-adapter` + `fluent-bit` | Azure AD authentication/authorization in front of the API server *(inferred)* |
+| | `config-agent`, `extension-manager` (3/3), `extension-events-collector`, `resource-sync-agent`, `clusteridentityoperator`, `cluster-metadata-operator` | the named agent (+ `healthstatecontroller` for `extension-manager`) + `fluent-bit` | Arc agents for configuration, extensions, resource sync, cluster identity and metadata *(inferred)* |
+| | `telemetry-agent` (3/3) | `metrics-collector`, `kube-state-metrics`, `fluent-bit` | Collects cluster metrics and logs for Azure *(inferred)* |
+| `cert-manager` | `cert-manager`, `cert-manager-cainjector`, `cert-manager-webhook`, `trust-manager` (2/2 each) | the component + `otel-collector` | Issues and distributes the TLS certificates and trust bundles used by the model endpoints; `otel-collector` ships its telemetry *(inferred)* |
+| `istio-system` | `istiod` (1/1) | `discovery` | Istio control plane for the model gateway |
+| `kube-system` | `csi-nexus-volume-controller` (4/4); `csi-nexus-volume-node-*` (3/3) | `nexus-volume` + the standard CSI helpers `csi-provisioner`, `csi-attacher`, `node-driver-registrar`, `liveness-probe` | The Azure Local storage driver that creates and attaches the persistent volumes (such as the 20 GiB database volume) |
+| | `etcd`, `kube-apiserver`, `kube-controller-manager`, `kube-scheduler`, `kube-vip`, `kube-proxy`, `coredns`, `cilium` (agent and operator), `multus`, `node-local-dns`, `node-local-proxy`, `kubevirt-cloud-controller-manager` (1/1 each) | one container each | Kubernetes control plane, virtual IP, service networking, DNS, the Cilium network plug-in and policy enforcement, and cloud integration |
+
+Common sidecar names: `fluent-bit` is a log shipper, and `otel-collector` and
+`otel-sidecar` are OpenTelemetry telemetry collectors. They exist for platform
+monitoring and are unrelated to the telemetry data this demonstration generates.
+
 ## 3. Telemetry ingestion and data model
 
 ### Measurements
@@ -290,21 +410,18 @@ for short, cited observations/impact/validation/uncertainty without physical
 intervention instructions. This is a prompt constraint, not a reliability guarantee:
 the 0.5B model demonstrably failed to follow it.
 
-The backend supports two response modes. **Non-streaming** returns one JSON
-response whose `usage` gives exact input/output/total token counts, but the existing
-model proxy cuts off non-streaming responses after about 60 seconds. **Streaming**
-consumes SSE, which avoids that limit for slow answers, but the model server returns
-no usage in streaming mode (verified: the same model reports usage non-streaming and
-none when streaming, despite requesting it). The default is non-streaming for the
-fast 0.5B model and streaming for 14B (`STREAMING_RECOMMENDED` in `knowledge.py`);
-the operator can override it per request, and the UI asks for confirmation before
-sending 14B non-streaming because the gateway may return HTTP 504. Both paths share
-validation: a supported finish reason (and the event-stream content type and `[DONE]`
-when streaming), out-of-range `[S#]` references and invalid reported usage are
-rejected; the narrative is not fact-checked and citations are not guaranteed.
-Missing token counts are displayed explicitly and never estimated. A reported `length`
-finish appends a partial-output notice. The mode used is recorded in the saved
-request (`exchange.request.stream`).
+The backend supports two response modes, non-streaming (JSON) and streaming (SSE).
+The operating guidance, the verified token-count limitation and the roughly
+60-second gateway limit are described once, in
+[Model transport, response modes and token counts](ANALYSIS.md#model-transport-response-modes-and-token-counts).
+The design points: the default is chosen per model (`STREAMING_RECOMMENDED` in
+`knowledge.py`) and can be overridden per request, with the UI confirming before a
+slow model is sent non-streaming; both paths share one validation step, which
+rejects an unsupported finish reason, an incomplete stream (no `[DONE]` or
+event-stream content type), out-of-range `[S#]` references and invalid reported
+usage. The narrative is not fact-checked and citations are not guaranteed. A
+reported `length` finish appends a partial-output notice, and the mode used is
+recorded in the saved request (`exchange.request.stream`).
 
 The client uses a 300-second HTTP timeout and, when streaming, checks elapsed time
 between stream lines. This is not a guaranteed hard wall-clock cancellation of remote

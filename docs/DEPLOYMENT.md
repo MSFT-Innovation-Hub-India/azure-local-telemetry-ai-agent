@@ -415,7 +415,9 @@ Database, simulator and shared pod templates are not reapplied.
 
 Expected: one Ready web pod, fresh detector ticks, then a log reporting 16 SOP
 passages indexed. Index dependencies can retry separately; readiness alone does
-not prove indexing or inference. Validate the API in the next section.
+not prove indexing or inference. Validate the API in the next section. To see what
+each pod and container in the cluster is for (including the `2/2` and `3/3` pods),
+see [Pods and containers on the cluster](ARCHITECTURE.md#pods-and-containers-on-the-cluster).
 
 ## 8. Open the independent applications
 

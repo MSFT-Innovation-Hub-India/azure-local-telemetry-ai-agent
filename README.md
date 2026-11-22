@@ -21,7 +21,7 @@ not a combined UI or deployment.
 |---|---|
 | [Deployment guide](docs/DEPLOYMENT.md) | Ordered, parameterized PowerShell commands for another environment: access, sign-in isolation, builds, preflight, deployment, validation and upgrades |
 | [Shared-service prerequisites](docs/DEPENDENCIES.md) | Exact external contracts, optional DNS Service setup, and fresh-lab setup using the companion project |
-| [Architecture and design](docs/ARCHITECTURE.md) | Components, data/request flows, database model, rules, RAG, security, capacity and design trade-offs |
+| [Architecture and design](docs/ARCHITECTURE.md) | Components, pods and containers on the cluster (what each does, including sidecars), data/request flows, database model, rules, RAG, security, capacity and design trade-offs |
 | [Code and extension guide](docs/DEVELOPMENT.md) | File/function map, configuration, APIs, tests, SOP/rule authoring and limitations when adapting the code |
 | [Demo and operations runbook](docs/ANALYSIS.md) | UI walkthrough, bringing the demo up with `tools\start-demo.ps1`, demo narrative and talk track, both models, operating procedures, troubleshooting and measured validation results |
 
