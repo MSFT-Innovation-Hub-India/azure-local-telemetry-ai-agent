@@ -61,7 +61,8 @@ Browser --> independent telemetry app --> telemetry evidence + original SOPs
 - TLS-verified, authenticated local inference; no external hosted LLM API.
 
 TimescaleDB is PostgreSQL extended by **Timescale/Tiger Data**, not a
-Microsoft-provided database container. Its pinned upstream image is mirrored to
+Microsoft-provided database container (see
+[why TimescaleDB rather than a plain indexed table](docs/ARCHITECTURE.md#why-timescaledb-instead-of-a-plain-indexed-table)). Its pinned upstream image is mirrored to
 your approved ACR. Review the [upstream instructions](https://github.com/timescale/timescaledb-docker)
 and [license](https://github.com/timescale/timescaledb/blob/main/LICENSE) before
 redistribution or production use.

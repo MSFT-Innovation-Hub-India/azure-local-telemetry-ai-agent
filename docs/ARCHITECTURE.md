@@ -156,6 +156,47 @@ PostgreSQL is also the document store because three small versioned Markdown
 documents do not justify another service or PVC. Qdrant is a derivative retrieval
 index, not the authoritative store of original documents.
 
+### Why TimescaleDB instead of a plain indexed table
+
+TimescaleDB is an extension to PostgreSQL, not a separate database: the schema,
+SQL, drivers, roles and tools are ordinary PostgreSQL. A plain table with a B-tree
+index on `measured_at` would also work for this demonstration. The extension is
+used for how the table is stored and managed:
+
+| | Plain table + timestamp index | Hypertable (this solution) |
+|---|---|---|
+| Storage | One growing table and one ever-larger index | Automatically split into daily chunks; recent-data queries touch only the newest chunks and their small indexes |
+| Removing old data | `DELETE` of many rows, leaving dead rows, vacuum work and WAL | A seven-day retention policy drops whole chunks and frees disk immediately |
+| Time bucketing | `date_bin` / `date_trunc` | `time_bucket('5 seconds', ...)`, used for the trend chart and the rule monitor |
+| Metadata | Hand-written queries | Built-in chunk, job and size views, used by the data-store panel |
+
+Native declarative partitioning could provide the first two rows, but the
+partitions would have to be created and dropped by the operator (for example
+with `pg_partman`).
+
+**Used here:** a hypertable with daily chunks, the seven-day retention policy,
+`time_bucket`, and the chunk/job/size views. **Not used:** compression (typically
+the largest storage saving), continuous aggregates and the time-series hyperfunctions;
+charts query the raw readings.
+
+**Be candid about scale.** The demonstration holds about one million rows (three
+assets, roughly 130,000 rows per day, seven days of retention) and measured query
+times are small: the rule monitor query took 4-12 ms and an exact full row count
+roughly 100-200 ms. Plain PostgreSQL would perform adequately at this size. The
+reasons for TimescaleDB are that it is the pattern that matters at real scale
+(thousands of sensors at one reading per second produce hundreds of millions of
+rows per day, where partitioned storage and instant retention keep inserts,
+queries and disk use manageable), that it makes the "time-series database on
+Azure Local" message concrete, and that alerts, SOP documents and diagnoses stay in
+the same PostgreSQL engine rather than a second database.
+
+**Costs:** a Timescale/Tiger Data container image to mirror and maintain (it is not
+a Microsoft image), its own license to review before redistribution, and an
+extension with background jobs to operate. If minimum moving parts matter more than
+demonstrating time-series features, plain PostgreSQL is a reasonable substitute for
+this scale. Enabling compression and showing the storage saving would strengthen
+the case for the extension.
+
 ## 4. Deterministic detection and incident state
 
 A dedicated thread evaluates every five seconds using database time and the last
