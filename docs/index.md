@@ -134,9 +134,13 @@ or equipment control. Review the documented boundaries before adapting it.
 ## Related Azure Local sample
 
 The [azure-local-rag-assistant companion repository](https://github.com/MSFT-Innovation-Hub-India/azure-local-rag-assistant)
-provides the warranty PDF assistant and the shared Qdrant, embedding and model
-services this project reuses (see the
-[README](https://github.com/MSFT-Innovation-Hub-India/azure-local-telemetry-ai-agent#companion-project-the-warranty-pdf-assistant)).
+deploys the warranty PDF assistant and the shared Qdrant, embedding and model
+services this project reuses. The telemetry app is a second consumer of that
+platform: it uses the same embedding service, Qdrant and Qwen models, with its
+own isolated SOP collection (see the
+[README](https://github.com/MSFT-Innovation-Hub-India/azure-local-telemetry-ai-agent#how-this-solution-builds-on-the-warranty-assistant-platform).
+To add a PDF document scenario with chunking and embedding, use the companion's
+[scenario guide](https://github.com/MSFT-Innovation-Hub-India/azure-local-rag-assistant/blob/main/docs/SCENARIOS.md#1-create-a-scenario).
 Follow this project's prerequisite guide for the specific shared-service contracts.
 
 Published by [Microsoft Innovation Hub India](https://github.com/MSFT-Innovation-Hub-India).

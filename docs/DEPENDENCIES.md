@@ -193,6 +193,17 @@ The lab reference is
 Do not assume it contains this custom telemetry solution or every enhancement in
 the local companion project.
 
+The companion's documentation is organized by task. For the steps in this section
+and the next, use its
+[workstation setup](https://github.com/MSFT-Innovation-Hub-India/azure-local-rag-assistant/blob/main/docs/PREREQUISITES.md#a-configure-the-developer-workstation),
+[Foundry Local extension](https://github.com/MSFT-Innovation-Hub-India/azure-local-rag-assistant/blob/main/docs/PREREQUISITES.md#b6-platform-administrator-only-foundry-local-extension),
+[Qwen CPU model deployment](https://github.com/MSFT-Innovation-Hub-India/azure-local-rag-assistant/blob/main/docs/PREREQUISITES.md#b8-platform-administrator-only-deploy-the-qwen-cpu-models)
+and [guarded deployment](https://github.com/MSFT-Innovation-Hub-India/azure-local-rag-assistant/blob/main/docs/DEPLOYMENT.md#4-preflight-then-deploy-the-assistant)
+pages. Its pages on
+[adding document scenarios](https://github.com/MSFT-Innovation-Hub-India/azure-local-rag-assistant/blob/main/docs/SCENARIOS.md)
+are not needed for the telemetry demo; see the README on
+[how this project builds on the companion](../README.md#how-this-solution-builds-on-the-warranty-assistant-platform).
+
 For the bootstrap below you need an approved copy of the **companion source**
 used in the original environment (`qwen2.5-sample`), including its model manifests,
 ACR builder and `tools.deploy_assistant`. It is not vendored here. Transfer its

@@ -380,6 +380,12 @@ Collections belonging to the warranty assistant are never queried, renamed,
 replaced or deleted by this application's indexing code. Content naming is
 logical isolation, **not** per-collection authorization.
 
+This is deliberately not the companion's PDF pipeline. It reuses the same
+embedding service and Qdrant, but chunks by SOP section instead of fixed
+900-character page windows, runs in the app instead of an indexing Job, and has no
+scenario catalog. The comparison, and where to add PDF scenarios, is in the
+[README](../README.md#how-this-solution-builds-on-the-warranty-assistant-platform).
+
 ## 6. Diagnosis request sequence
 
 ```mermaid
