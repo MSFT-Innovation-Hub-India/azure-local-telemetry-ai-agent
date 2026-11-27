@@ -396,14 +396,14 @@ sequenceDiagram
     participant DB as PostgreSQL
     participant RAG as Embeddings / Qdrant
     participant LLM as Selected local Qwen
-    User->>UI: Select alert and model; Generate diagnosis
+    User->>UI: Select alert and model, Generate diagnosis
     UI->>App: POST /api/alerts/{id}/diagnose
-    App->>App: Validate model/index; acquire nonblocking lock
+    App->>App: Validate model/index, acquire nonblocking lock
     App->>DB: Read alert and last 90 seconds of telemetry
     App->>App: Build trigger/current evidence and missing checks
-    App->>RAG: Embed query; retrieve top four SOP passages
+    App->>RAG: Embed query, retrieve top four SOP passages
     App->>App: Exact rule-supporting passage + up to two distinct retrieved passages
-    App->>LLM: Authenticated TLS request; temperature 0; non-streaming (0.5B) or streaming (14B)
+    App->>LLM: Authenticated TLS request, temperature 0, non-streaming (0.5B) or streaming (14B)
     LLM-->>App: JSON with usage, or SSE deltas + finish reason + DONE (no usage)
     App->>App: Validate response/source identifiers/usage metadata
     App->>DB: Save answer, model, sources and evidence snapshot
